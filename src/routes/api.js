@@ -24,7 +24,13 @@ import {
   exportBackupFile,
   importBackupFile,
 } from "../services/backup.js";
-import { listBookings, cancelBooking, createBooking, nextBookingForTable } from "../services/bookings.js";
+import {
+  listBookings,
+  cancelBooking,
+  createBooking,
+  endsAtIso,
+  nextBookingForTable,
+} from "../services/bookings.js";
 import { clientStats, createClient, listClients, updateClient } from "../services/clients.js";
 import { createMenuItem, deleteMenuItem, listMenu, updateMenuItem } from "../services/menu.js";
 import { addOrder, listOrders, removeOrder } from "../services/orders.js";
@@ -726,6 +732,9 @@ export function createApiRouter(db) {
               client_name: booking.client_name,
               starts_at: booking.starts_at,
               duration_minutes: booking.duration_minutes,
+              // Конец брони считает сервер: кассиру важно видеть, до какого
+              // часа стол занят, а не пересчитывать это в браузере.
+              ends_at: endsAtIso(booking),
             }
           : null,
         session: session

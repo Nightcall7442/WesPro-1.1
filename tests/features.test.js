@@ -242,6 +242,13 @@ test("бронь: создание, пересечение, отмена, под
   const dashboard = await admin.get("/api/dashboard");
   const row = dashboard.body.find((t) => t.id === table.id);
   assert.equal(row.booking.client_name, "Сергей");
+  // Конец брони считает сервер — по нему кассир видит, до какого часа
+  // стол занят и когда снова свободен.
+  assert.equal(
+    row.booking.ends_at,
+    new Date(Date.parse(inHour) + 60 * 60000).toISOString(),
+    "конец брони = начало + длительность"
+  );
 
   const cancelled = await admin.post(`/api/bookings/${booking.body.id}/cancel`);
   assert.equal(cancelled.body.status, "cancelled");

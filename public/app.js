@@ -579,9 +579,108 @@ function tableStatusClass(table) {
   return table.session.expired ? "expired" : "prepaid";
 }
 
+// Бронь ближе этого срока считается «скорой»: плитка подсвечивается,
+// предупреждение кассиру краснеет.
+const BOOKING_SOON_MINUTES = 60;
+
 function bookingSoon(table) {
   if (!table.booking) return false;
-  return Date.parse(table.booking.starts_at) - Date.now() <= 60 * 60000;
+  return Date.parse(table.booking.starts_at) - Date.now() <= BOOKING_SOON_MINUTES * 60000;
+}
+
+/** Сколько минут осталось до брони (отрицательно — бронь уже идёт). */
+function bookingMinutesLeft(table) {
+  if (!table.booking) return null;
+  return Math.round((Date.parse(table.booking.starts_at) - Date.now()) / 60000);
+}
+
+/** Часы:минуты для брони — той же локалью, что и остальные подписи броней. */
+function bookingClock(iso) {
+  return new Date(Date.parse(iso)).toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** «1 ч 35 мин» — в предупреждении читается лучше, чем 01:35:00. */
+function humanMinutes(minutes) {
+  const total = Math.max(0, Math.round(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (!h) return `${m} мин`;
+  return m ? `${h} ч ${m} мин` : `${h} ч`;
+}
+
+/**
+ * Текст предупреждения кассиру: до какого часа можно играть и что будет
+ * дальше. plannedMinutes — сколько кассир собирается открыть (null, если
+ * время не ограничено: у постоплаты конца нет и сравнивать не с чем).
+ */
+function bookingWarningText(table, plannedMinutes = null) {
+  if (!table.booking) return "";
+  const { client_name: name, starts_at: startsAt, ends_at: endsAt } = table.booking;
+  const left = bookingMinutesLeft(table);
+  const freeAgain = endsAt ? ` Стол снова свободен в ${bookingClock(endsAt)}.` : "";
+
+  if (left <= 0) {
+    return (
+      `Стол забронирован: ${name}. Бронь уже идёт с ${bookingClock(startsAt)}.` +
+      freeAgain
+    );
+  }
+  const head =
+    left < 1
+      ? `Стол забронирован: ${name} — бронь начинается прямо сейчас.`
+      : `Стол забронирован: ${name} в ${bookingClock(startsAt)}. ` +
+        `Играть можно ${humanMinutes(left)} — до ${bookingClock(startsAt)}.`;
+  const overrun =
+    plannedMinutes !== null && plannedMinutes > left
+      ? ` Вы открываете на ${humanMinutes(plannedMinutes)} — ` +
+        `гость не доиграет ${humanMinutes(plannedMinutes - left)} до брони.`
+      : "";
+  return head + overrun + freeAgain;
+}
+
+/**
+ * Полоска-предупреждение о брони для окон открытия стола. Возвращает null,
+ * если брони нет, — тогда в окне ничего не меняется.
+ * @param {object} table
+ * @param {() => number | null} plannedMinutes сколько минут собираются открыть
+ * @returns {{node: HTMLElement, update: () => void} | null}
+ */
+function bookingWarningNote(table, plannedMinutes = () => null) {
+  if (!table.booking) return null;
+  const node = document.createElement("div");
+  const text = document.createElement("span");
+  const update = () => {
+    const planned = plannedMinutes();
+    const left = bookingMinutesLeft(table);
+    const over = left <= 0 || (planned !== null && planned > left);
+    node.className = "booking-note" + (over ? " over" : left <= BOOKING_SOON_MINUTES ? " soon" : "");
+    text.textContent = bookingWarningText(table, planned);
+  };
+  node.append(icon("calendar"), text);
+  update();
+  return { node, update };
+}
+
+/**
+ * Спрашивает кассира, точно ли открывать стол, у которого скоро (или уже)
+ * бронь. Не запрещает: гость брони может опоздать, а решает кассир.
+ * @returns {Promise<boolean>} true — можно открывать
+ */
+async function confirmBookingOverrun(table, plannedMinutes) {
+  if (!table.booking) return true;
+  const left = bookingMinutesLeft(table);
+  // Время не ограничено — предупреждаем при любой брони: конца у такого
+  // сеанса нет, и сам он до брони не закончится.
+  const overrun = plannedMinutes === null ? true : left <= 0 || plannedMinutes > left;
+  if (!overrun) return true;
+  return confirmModal(
+    "Стол забронирован",
+    bookingWarningText(table, plannedMinutes),
+    "Всё равно открыть"
+  );
 }
 
 /** Полная интерактивная карточка стола (для сетки карточек и окна стола). */
@@ -3112,6 +3211,8 @@ async function openFreeTimeSession(table) {
     showToast("Нет доступных тарифов для этого стола");
     return;
   }
+  // Бесплатное время тоже не кончается само — при брони предупреждаем.
+  if (!(await confirmBookingOverrun(table, null))) return;
   try {
     await api(`/api/tables/${table.id}/open`, {
       method: "POST",
@@ -3434,14 +3535,31 @@ function openStartSessionModal(table) {
   timeBlock.append(makeField("Время сессии, мин", minutesInput), chipsRow, timePreview);
   body.append(timeBlock);
   syncChips();
-  updateTimePreview();
 
-  const timePayRow = paymentButtonsRow((method) => {
+  // Стол забронирован — кассир должен увидеть это до того, как посадит
+  // гостя: у постоплаты конца нет, а «на время» может перехлестнуть бронь.
+  // Полоску ставим вверху окна, но создаём здесь — ей нужны поля времени.
+  const bookingWarn = bookingWarningNote(table, () =>
+    timed.box.checked ? Number(minutesInput.value) || 0 : null
+  );
+  if (bookingWarn) body.insertBefore(bookingWarn.node, unlimited.row);
+  const refreshPreview = () => {
+    updateTimePreview();
+    bookingWarn?.update();
+  };
+  minutesInput.addEventListener("input", () => bookingWarn?.update());
+  for (const box of [unlimited.box, timed.box]) {
+    box.addEventListener("change", () => bookingWarn?.update());
+  }
+  refreshPreview();
+
+  const timePayRow = paymentButtonsRow(async (method) => {
     const minutes = Number(minutesInput.value);
     if (!Number.isFinite(minutes) || minutes <= 0) {
       showToast("Укажите время больше нуля");
       return;
     }
+    if (!(await confirmBookingOverrun(table, minutes))) return;
     const { tariff, clientId } = pricing.read();
     openPrepaid(table, {
       tariff_id: tariff.id,
@@ -3457,7 +3575,9 @@ function openStartSessionModal(table) {
   const plainOpenBtn = document.createElement("button");
   plainOpenBtn.className = "primary";
   plainOpenBtn.textContent = "Открыть";
-  plainOpenBtn.addEventListener("click", () => {
+  plainOpenBtn.addEventListener("click", async () => {
+    // Постоплата не кончается сама — при брони спрашиваем всегда.
+    if (!(await confirmBookingOverrun(table, null))) return;
     const { tariff, clientId } = pricing.read();
     openPostpaidNow(table, { tariffId: tariff.id, clientId });
   });
@@ -3557,13 +3677,27 @@ function openCheckModal(table) {
 
   body.append(makeField(`Сумма чека, ${cur()}`, amountInput), chipsRow, preview);
 
+  // Сколько минут даст введённая сумма — по ним и сверяемся с бронью.
+  const plannedByAmount = () => {
+    const sum = Number(amountInput.value);
+    const perHour = perHourNow();
+    if (!Number.isFinite(sum) || sum <= 0 || perHour <= 0) return null;
+    return Math.floor((sum / perHour) * 60);
+  };
+  const bookingWarn = bookingWarningNote(table, plannedByAmount);
+  if (bookingWarn) {
+    body.insertBefore(bookingWarn.node, hint);
+    amountInput.addEventListener("input", () => bookingWarn.update());
+  }
+
   body.append(
-    paymentButtonsRow((method) => {
+    paymentButtonsRow(async (method) => {
       const sum = Number(amountInput.value);
       if (!Number.isFinite(sum) || sum <= 0) {
         showToast("Укажите сумму больше нуля");
         return;
       }
+      if (!(await confirmBookingOverrun(table, plannedByAmount()))) return;
       const { tariff, clientId } = pricing.read();
       openPrepaid(table, {
         tariff_id: tariff.id,
@@ -3828,7 +3962,19 @@ function openVoucherModal(table) {
 
   let voucher = null;
 
+  // На сколько минут хватит остатка чека — по ним сверяемся с бронью.
+  const plannedByVoucher = () => {
+    if (!voucher) return null;
+    const { tariff, discount } = pricing.read();
+    const perHour = (tariff?.price_per_hour ?? 0) * (1 - discount / 100);
+    if (perHour <= 0) return null;
+    return Math.floor((voucher.balance / perHour) * 60);
+  };
+  const bookingWarn = bookingWarningNote(table, plannedByVoucher);
+  if (bookingWarn) body.insertBefore(bookingWarn.node, hint);
+
   const refresh = () => {
+    bookingWarn?.update();
     if (!voucher) {
       found.textContent = "";
       return;
@@ -3907,6 +4053,7 @@ function openVoucherModal(table) {
         return;
       }
     }
+    if (!(await confirmBookingOverrun(table, plannedByVoucher()))) return;
     const { tariff, clientId } = pricing.read();
     try {
       await api(`/api/tables/${table.id}/open`, {
@@ -3955,11 +4102,38 @@ async function runGroup(tables, action, successWord) {
   else showToast(`${successWord}: ${ok}`, true);
 }
 
-function groupOpenPostpaid() {
+/**
+ * Одно подтверждение на все забронированные столы из выделения — вместо
+ * череды окон по столу. Возвращает false, если кассир передумал.
+ */
+async function confirmGroupBookings(tables, plannedMinutes = null) {
+  const booked = tables.filter((t) => {
+    const left = bookingMinutesLeft(t);
+    if (left === null) return false;
+    return plannedMinutes === null || left <= 0 || plannedMinutes > left;
+  });
+  if (!booked.length) return true;
+  const list = booked
+    .map((t) => {
+      const left = bookingMinutesLeft(t);
+      return left <= 0
+        ? `${t.name} — бронь уже идёт (${t.booking.client_name})`
+        : `${t.name} — бронь через ${humanMinutes(left)} (${t.booking.client_name})`;
+    })
+    .join("; ");
+  return confirmModal(
+    booked.length === 1 ? "Стол забронирован" : "Столы забронированы",
+    `${list}. Открыть всё равно?`,
+    "Всё равно открыть"
+  );
+}
+
+async function groupOpenPostpaid() {
   const free = selectedTables().filter((t) => !t.session);
   const { tariff } = cardPricing(null);
   if (!free.length) return showToast("Среди выбранных нет свободных столов");
   if (!tariff) return showToast("Нет активных тарифов");
+  if (!(await confirmGroupBookings(free))) return;
   runGroup(
     free,
     (table) =>
@@ -3998,8 +4172,19 @@ function groupOpenTimeModal() {
   duration.addEventListener("change", updatePreview);
   updatePreview();
   body.append(makeField("Оплаченное время", duration), preview);
+
+  // Забронированные столы среди выбранных — по строке на каждый.
+  const bookedNotes = free
+    .filter((t) => t.booking)
+    .map((t) => bookingWarningNote(t, () => Number(duration.value)));
+  for (const note of bookedNotes) body.append(note.node);
+  duration.addEventListener("change", () => {
+    for (const note of bookedNotes) note.update();
+  });
+
   body.append(
-    paymentButtonsRow((method) => {
+    paymentButtonsRow(async (method) => {
+      if (!(await confirmGroupBookings(free, Number(duration.value)))) return;
       closeModal();
       runGroup(
         free,

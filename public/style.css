@@ -992,6 +992,19 @@ button.action.bar:hover { background: rgba(var(--accent-rgb), 0.12); color: var(
   color: var(--orange-text);
   background: rgba(201, 132, 58, 0.16);
 }
+/* Бронь уже идёт или оплаченное время её перехлёстывает — красным. */
+.booking-note.over {
+  color: var(--red);
+  background: rgba(191, 74, 74, 0.16);
+}
+/* В окнах открытия стола полоска идёт отдельным блоком, а не в карточке. */
+.modal .booking-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  line-height: 1.4;
+}
 
 /* --- Отчёты: пиковые часы --- */
 
