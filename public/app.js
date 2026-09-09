@@ -45,6 +45,8 @@ const PAYMENT_LABELS = {
   transfer: "Перевод",
   // Игра по чеку на остаток: живых денег в этот раз не было.
   voucher: "Чеком (остаток)",
+  // Оплата со счёта клиента: деньги пришли в кассу раньше, при пополнении.
+  balance: "Со счёта клиента",
 };
 
 state.currency = "₽";
@@ -1710,6 +1712,9 @@ async function openCloseModal(table) {
   }
   addLine("Итого", `${money(check.total)}`, true);
 
+  if (check.paid_from_account > 0) {
+    addLine("Оплачено со счёта клиента", `${money(check.paid_from_account)}`);
+  }
   if (prepaid) {
     if (check.paid_by_voucher > 0) {
       addLine(
@@ -1717,7 +1722,10 @@ async function openCloseModal(table) {
         `${money(check.paid_by_voucher)}`
       );
     }
-    const ownMoney = check.prepaid_amount - check.paid_by_voucher;
+    // «Уже оплачено» — только живые деньги: чек и счёт клиента показаны
+    // отдельными строками, иначе одна и та же сумма читается дважды.
+    const ownMoney =
+      check.prepaid_amount - check.paid_by_voucher - check.paid_from_account;
     if (ownMoney > 0) addLine("Уже оплачено", `${money(ownMoney)}`);
 
     if (check.voucher_out > 0) {
@@ -1725,6 +1733,15 @@ async function openCloseModal(table) {
       addLine(
         `Остаток чеком${check.unused_seconds ? ` (не сыграно ${formatDuration(check.unused_seconds)})` : ""}`,
         `${money(check.voucher_out)}`,
+        true
+      );
+    }
+    if (check.change_to_account > 0) {
+      // Оплачено со счёта — сдачу из кассы взять неоткуда, она
+      // возвращается обратно на счёт клиента.
+      addLine(
+        `Вернётся на счёт клиента${check.unused_seconds ? ` (не сыграно ${formatDuration(check.unused_seconds)})` : ""}`,
+        `${money(check.change_to_account)}`,
         true
       );
     }
@@ -1749,11 +1766,14 @@ async function openCloseModal(table) {
   }
   body.append(lines);
 
-  const closeWith = async (method) => {
+  const closeWith = async (method, useBalance = true) => {
     try {
       const session = await api(`/api/tables/${table.id}/close`, {
         method: "POST",
-        body: JSON.stringify(method ? { payment_method: method } : {}),
+        body: JSON.stringify({
+          ...(method ? { payment_method: method } : {}),
+          use_balance: useBalance,
+        }),
       });
       closeModal();
       showToast(
@@ -1792,7 +1812,14 @@ async function openCloseModal(table) {
 
   const hint = document.createElement("p");
   hint.className = "hint";
-  if (prepaid && check.voucher_out > 0 && check.due > 0) {
+  if (check.due > 0 && (check.account_left ?? 0) > 0) {
+    hint.textContent =
+      check.due_money > 0
+        ? `Со счёта клиента спишется ${money(check.due_from_account)}, ` +
+          `деньгами возьмите ещё ${money(check.due_money)}.`
+        : `Всё спишется со счёта клиента (${money(check.due_from_account)}) — ` +
+          "деньги брать не нужно.";
+  } else if (prepaid && check.voucher_out > 0 && check.due > 0) {
     hint.textContent =
       `Возьмите с гостя ещё ${money(check.due)}. Неиспользованный остаток ` +
       `${money(check.voucher_out)} не возвращается деньгами — на него будет ` +
@@ -1823,7 +1850,12 @@ async function openCloseModal(table) {
   // Способ оплаты спрашиваем, когда с гостя ещё нужно взять деньги.
   // Если доплаты нет (или наоборот — сдача), достаточно одной кнопки.
   if (!prepaid || check.due > 0) {
-    body.append(paymentButtonsRow((method) => closeWith(method)));
+    const pay = accountPayRow(
+      (method, useBalance) => closeWith(method, useBalance),
+      { actionLabel: "Закрыть со счёта" }
+    );
+    pay.update(check.account_left ?? 0, check.due);
+    body.append(pay.node);
   } else {
     const confirm = document.createElement("button");
     confirm.className = "primary";
@@ -2005,6 +2037,10 @@ async function openReceipt(sessionId, { print = false } = {}) {
       ${receipt.paid_by_voucher > 0
         ? `<tr><td>Оплачено чеком ${esc(receipt.voucher_code ?? "")}</td><td class="r">${money(receipt.paid_by_voucher)}</td></tr>`
         : ""}
+      ${receipt.paid_from_account > 0
+        ? `<tr><td>Со счёта клиента</td><td class="r">${money(receipt.paid_from_account)}</td></tr>` +
+          `<tr><td>Остаток на счету</td><td class="r">${money(receipt.client_account)}</td></tr>`
+        : ""}
       <tr class="total"><td>ИТОГО</td><td class="r">${money(receipt.total_cost)}</td></tr>
       <tr><td>Оплата</td><td class="r">${PAYMENT_LABELS[receipt.payment_method] ?? "—"}</td></tr>
       ${receipt.closed_by_name ? `<tr><td>Кассир</td><td class="r">${esc(receipt.closed_by_name)}</td></tr>` : ""}
@@ -2104,6 +2140,7 @@ function shiftReportHtml(shift, moves, { z = false } = {}) {
       ${row("Наличные", money(shift.cash))}
       ${row("Карта", money(shift.card))}
       ${row("Перевод", money(shift.transfer))}
+      ${shift.account > 0 ? row("Со счетов клиентов", money(shift.account)) : ""}
       <tr class="total"><td>ВЫРУЧКА</td><td class="r">${money(shift.revenue)}</td></tr>
     </table>
     <hr>
@@ -2297,6 +2334,9 @@ function shiftClosingSummary(shift) {
     row("Наличные", money(shift.cash)),
     row("Карта", money(shift.card)),
     row("Перевод", money(shift.transfer)),
+    // Оплата со счетов клиентов: выручка есть, а денег в кассу сейчас не
+    // приходило — они пришли раньше, при пополнении.
+    row("Со счетов клиентов", money(shift.account ?? 0)),
     row("Выручка всего", money(shift.revenue), true),
     row("В кассе на начало", shift.opening_cash === null ? "не указано" : money(shift.opening_cash)),
     row("Внесено в кассу", money(shift.cash_in)),
@@ -2556,6 +2596,7 @@ const EVENT_LABELS = {
   booking_cancelled: "Отменена бронь",
   client_created: "Добавлен клиент",
   client_topup: "Пополнение счёта",
+  client_debit: "Списание со счёта",
 };
 
 async function refreshJournal() {
@@ -3344,6 +3385,76 @@ function paymentButtonsRow(onPick) {
   return row;
 }
 
+/**
+ * Кнопки оплаты с учётом счёта клиента.
+ *
+ * Гость, который заранее внёс деньги, платить второй раз не должен:
+ * галочка «сначала со счёта» стоит по умолчанию, а кассир видит, сколько
+ * спишется и сколько ещё взять деньгами. Если счёта хватает на всё,
+ * выбирать наличные или карту не нужно — достаточно одной кнопки.
+ *
+ * @param {(method: string | null, useBalance: boolean) => void} onPick
+ *   method — наличные/карта/перевод; null — платим только со счёта.
+ * @returns {{node: HTMLElement, update: (account: number, amount: number) => void}}
+ */
+function accountPayRow(onPick, { actionLabel = "Открыть со счёта" } = {}) {
+  const wrap = document.createElement("div");
+
+  const useBox = document.createElement("input");
+  useBox.type = "checkbox";
+  useBox.checked = true;
+  const useRow = document.createElement("label");
+  useRow.className = "switch-row";
+  const useText = document.createTextNode(" Сначала списать со счёта клиента");
+  useRow.append(useBox, useText);
+
+  const note = document.createElement("p");
+  note.className = "hint";
+
+  const accountBtn = document.createElement("button");
+  accountBtn.className = "primary";
+  accountBtn.style.width = "100%";
+  accountBtn.addEventListener("click", () => onPick(null, true));
+
+  const buttons = paymentButtonsRow((method) => onPick(method, useBox.checked));
+  wrap.append(useRow, note, accountBtn, buttons);
+
+  let account = 0;
+  let amount = 0;
+  const render = () => {
+    const has = account > 0;
+    useRow.hidden = !has;
+    note.hidden = !has;
+    if (!has) {
+      accountBtn.hidden = true;
+      buttons.hidden = false;
+      return;
+    }
+    useText.textContent = ` Сначала списать со счёта клиента (${money(account)})`;
+    const fromAccount = useBox.checked ? Math.min(account, amount) : 0;
+    const covers = useBox.checked && amount > 0 && account >= amount;
+    note.textContent = !useBox.checked
+      ? `Счёт клиента не трогаем — гость платит деньгами ${money(amount)}.`
+      : covers
+        ? `Спишем со счёта ${money(amount)} — деньги брать не нужно.`
+        : `Спишем со счёта ${money(fromAccount)}, деньгами добрать ${money(amount - fromAccount)}.`;
+    accountBtn.hidden = !covers;
+    accountBtn.textContent = `${actionLabel} — ${money(amount)}`;
+    buttons.hidden = covers;
+  };
+  useBox.addEventListener("change", render);
+  render();
+
+  return {
+    node: wrap,
+    update: (nextAccount, nextAmount) => {
+      account = Number(nextAccount) || 0;
+      amount = Number(nextAmount) || 0;
+      render();
+    },
+  };
+}
+
 async function openPrepaid(table, payload) {
   try {
     await api(`/api/tables/${table.id}/open`, {
@@ -3481,6 +3592,9 @@ function pricingControls(table, { onChange } = {}) {
           ? `${client.name}: скидка ${clientDiscount}%`
           : `${client.name}: скидки нет`
       );
+      if (client.account > 0) {
+        parts.push(`На счету ${money(client.account)} — спишется в первую очередь`);
+      }
     }
     if (state.promotion) {
       parts.push(
@@ -3518,6 +3632,9 @@ function openStartSessionModal(table) {
     return;
   }
   const body = document.createElement("div");
+  // Кнопки оплаты создаются ниже, но предпросмотр суммы обращается к ним
+  // раньше — объявляем заранее, чтобы первый расчёт не падал.
+  let timePay = null;
 
   // Тариф и клиент выбираются прямо здесь: на карте зала полей нет, а
   // от клиента зависит скидка и цена часа.
@@ -3582,6 +3699,9 @@ function openStartSessionModal(table) {
     const minutes = Number(minutesInput.value) || 0;
     const sum = (perHourNow() * minutes) / 60;
     timePreview.textContent = `К оплате сейчас: ~${money(sum)}`;
+    // Счёт клиента появляется только вместе с самим клиентом, поэтому
+    // пересчитываем разбивку вместе с суммой.
+    timePay?.update(pricing.read().client?.account ?? 0, sum);
   };
   minutesInput.addEventListener("input", () => {
     updateTimePreview();
@@ -3608,7 +3728,7 @@ function openStartSessionModal(table) {
   }
   refreshPreview();
 
-  const timePayRow = paymentButtonsRow(async (method) => {
+  timePay = accountPayRow(async (method, useBalance) => {
     const minutes = Number(minutesInput.value);
     if (!Number.isFinite(minutes) || minutes <= 0) {
       showToast("Укажите время больше нуля");
@@ -3622,8 +3742,10 @@ function openStartSessionModal(table) {
       mode: "time",
       minutes,
       payment_method: method,
+      use_balance: useBalance,
     });
   });
+  const timePayRow = timePay.node;
   timePayRow.hidden = true;
   body.append(timePayRow);
 
@@ -3669,6 +3791,7 @@ function openCheckModal(table) {
     return;
   }
   const body = document.createElement("div");
+  let checkPay = null;
 
   // Тариф и клиент выбираются здесь же: от них зависит, сколько времени
   // даст сумма чека.
@@ -3702,10 +3825,12 @@ function openCheckModal(table) {
     const perHour = perHourNow();
     if (!Number.isFinite(sum) || sum <= 0 || perHour <= 0) {
       preview.textContent = "";
+      checkPay?.update(pricing.read().client?.account ?? 0, 0);
       return;
     }
     const minutes = Math.floor((sum / perHour) * 60);
     preview.textContent = `Этого хватит примерно на ${formatDuration(minutes * 60)}`;
+    checkPay?.update(pricing.read().client?.account ?? 0, sum);
   };
   amountInput.addEventListener("input", updatePreview);
 
@@ -3745,8 +3870,7 @@ function openCheckModal(table) {
     amountInput.addEventListener("input", () => bookingWarn.update());
   }
 
-  body.append(
-    paymentButtonsRow(async (method) => {
+  checkPay = accountPayRow(async (method, useBalance) => {
       const sum = Number(amountInput.value);
       if (!Number.isFinite(sum) || sum <= 0) {
         showToast("Укажите сумму больше нуля");
@@ -3760,9 +3884,10 @@ function openCheckModal(table) {
         mode: "amount",
         amount: sum,
         payment_method: method,
+        use_balance: useBalance,
       });
-    })
-  );
+  });
+  body.append(checkPay.node);
 
   openModal(`Чек на сумму — ${table.name}`, body);
   amountInput.focus();
@@ -3842,6 +3967,10 @@ function openExtendModal(table) {
   }
   const perHour = session.price_per_hour * (1 - (session.discount_percent ?? 0) / 100);
   const body = document.createElement("div");
+  // Кнопки оплаты создаются ниже, а предпросмотр сумм обращается к ним
+  // раньше — объявляем заранее.
+  let timePay = null;
+  let amountPay = null;
 
   const hint = document.createElement("p");
   hint.className = "hint";
@@ -3895,7 +4024,9 @@ function openExtendModal(table) {
   timePreview.className = "order-total";
   const updateTimePreview = () => {
     const minutes = Number(minutesInput.value) || 0;
-    timePreview.textContent = `К оплате сейчас: ~${money((perHour * minutes) / 60)}`;
+    const sum = (perHour * minutes) / 60;
+    timePreview.textContent = `К оплате сейчас: ~${money(sum)}`;
+    timePay?.update(session.client_account ?? 0, sum);
     for (const [chip, m] of chips) {
       chip.classList.toggle("minute-chip-active", Number(minutesInput.value) === m);
     }
@@ -3905,15 +4036,19 @@ function openExtendModal(table) {
   body.append(timeBlock);
   updateTimePreview();
 
-  const timePay = paymentButtonsRow((method) => {
-    const minutes = Number(minutesInput.value);
-    if (!Number.isFinite(minutes) || minutes < 5) {
-      showToast("Продление: не меньше 5 минут");
-      return;
-    }
-    extend({ minutes, payment_method: method });
-  });
-  body.append(timePay);
+  timePay = accountPayRow(
+    (method, useBalance) => {
+      const minutes = Number(minutesInput.value);
+      if (!Number.isFinite(minutes) || minutes < 5) {
+        showToast("Продление: не меньше 5 минут");
+        return;
+      }
+      extend({ minutes, payment_method: method, use_balance: useBalance });
+    },
+    { actionLabel: "Продлить со счёта" }
+  );
+  body.append(timePay.node);
+  updateTimePreview();
 
   // --- сумма ---
   const amountBlock = document.createElement("div");
@@ -3929,34 +4064,40 @@ function openExtendModal(table) {
     const sum = Number(amountInput.value);
     if (!Number.isFinite(sum) || sum <= 0 || perHour <= 0) {
       amountPreview.textContent = "";
+      amountPay?.update(session.client_account ?? 0, 0);
       return;
     }
     amountPreview.textContent =
       `Добавит примерно ${formatDuration(Math.floor((sum / perHour) * 3600))}`;
+    amountPay?.update(session.client_account ?? 0, sum);
   };
   amountInput.addEventListener("input", updateAmountPreview);
   amountBlock.append(makeField(`Сумма, ${cur()}`, amountInput), amountPreview);
   body.append(amountBlock);
 
-  const amountPay = paymentButtonsRow((method) => {
-    const sum = Number(amountInput.value);
-    if (!Number.isFinite(sum) || sum <= 0) {
-      showToast("Укажите сумму больше нуля");
-      return;
-    }
-    extend({ amount: sum, payment_method: method });
-  });
-  amountPay.hidden = true;
-  body.append(amountPay);
+  amountPay = accountPayRow(
+    (method, useBalance) => {
+      const sum = Number(amountInput.value);
+      if (!Number.isFinite(sum) || sum <= 0) {
+        showToast("Укажите сумму больше нуля");
+        return;
+      }
+      extend({ amount: sum, payment_method: method, use_balance: useBalance });
+    },
+    { actionLabel: "Продлить со счёта" }
+  );
+  amountPay.node.hidden = true;
+  body.append(amountPay.node);
+  updateAmountPreview();
 
   function setMode(mode) {
     for (const [value, btn] of buttons) {
       btn.classList.toggle("view-active", value === mode);
     }
     timeBlock.hidden = mode !== "time";
-    timePay.hidden = mode !== "time";
+    timePay.node.hidden = mode !== "time";
     amountBlock.hidden = mode !== "amount";
-    amountPay.hidden = mode !== "amount";
+    amountPay.node.hidden = mode !== "amount";
   }
   setMode("time");
 

@@ -8,7 +8,12 @@ import { JournalEvent, logEvent } from "./journal.js";
 const CLIENT_FIELDS = `
   c.id, c.name, c.phone, c.discount_percent, c.note, c.created_at,
   (SELECT COUNT(*) FROM table_sessions s
-    WHERE s.client_id = c.id AND s.ended_at IS NOT NULL) AS visits
+    WHERE s.client_id = c.id AND s.ended_at IS NOT NULL) AS visits,
+  -- Счёт клиента: деньги, внесённые заранее. Чеки на остаток и подарки
+  -- сюда не входят — они лежат у гостя на руках со своим кодом.
+  (SELECT COALESCE(SUM(v.balance_kopecks), 0) FROM vouchers v
+    WHERE v.client_id = c.id AND v.kind = 'topup' AND v.status = 'active')
+    AS account_kopecks
 `;
 
 // Статистика клиента по закрытым сеансам: сколько раз был, сколько

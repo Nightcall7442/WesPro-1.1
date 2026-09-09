@@ -48,9 +48,11 @@ export function revenueReport(db, days) {
   const modifier = `${tz >= 0 ? "+" : ""}${tz} minutes`;
   const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
 
+  // Оплату со счёта клиента вычитаем: эти деньги в кассу пришли при
+  // пополнении, в наличных и карте этого дня их быть не должно.
   const sumBy = (method) =>
     `COALESCE(SUM(CASE WHEN s.payment_method = '${method}'
-       THEN s.total_cost_kopecks ELSE 0 END), 0)`;
+       THEN s.total_cost_kopecks - s.account_kopecks ELSE 0 END), 0)`;
 
   const dayRows = db
     .prepare(

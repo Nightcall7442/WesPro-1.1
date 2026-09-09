@@ -400,6 +400,16 @@ export function createDatabase(filePath = DATABASE_PATH) {
     "voucher_kopecks INTEGER NOT NULL DEFAULT 0"
   );
   ensureColumn(db, "table_sessions", "voucher_id", "voucher_id INTEGER REFERENCES vouchers (id)");
+  // Сколько по этому сеансу списано со счёта клиента (пополнения). Эти
+  // деньги пришли в кассу раньше — в выручку они попадают в день игры,
+  // но наличными/картой этой смены их считать нельзя, иначе касса
+  // «не сойдётся»: их уже посчитали при пополнении.
+  ensureColumn(
+    db,
+    "table_sessions",
+    "account_kopecks",
+    "account_kopecks INTEGER NOT NULL DEFAULT 0"
+  );
   // Акция «каждый N-й час в подарок»: сколько подарочных часов клиенту
   // уже начислено — чтобы не выдать один и тот же подарок дважды.
   ensureColumn(

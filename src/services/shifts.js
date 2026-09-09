@@ -14,15 +14,17 @@ const SHIFT_TOTALS = `
     AS sessions_count,
   (SELECT COALESCE(SUM(ts.total_cost_kopecks), 0) FROM table_sessions ts
     WHERE ts.close_shift_id = sh.id) AS revenue_kopecks,
-  (SELECT COALESCE(SUM(ts.total_cost_kopecks), 0) FROM table_sessions ts
+  (SELECT COALESCE(SUM(ts.total_cost_kopecks - ts.account_kopecks), 0) FROM table_sessions ts
     WHERE ts.close_shift_id = sh.id AND ts.payment_method = 'cash')
     AS cash_kopecks,
-  (SELECT COALESCE(SUM(ts.total_cost_kopecks), 0) FROM table_sessions ts
+  (SELECT COALESCE(SUM(ts.total_cost_kopecks - ts.account_kopecks), 0) FROM table_sessions ts
     WHERE ts.close_shift_id = sh.id AND ts.payment_method = 'card')
     AS card_kopecks,
-  (SELECT COALESCE(SUM(ts.total_cost_kopecks), 0) FROM table_sessions ts
+  (SELECT COALESCE(SUM(ts.total_cost_kopecks - ts.account_kopecks), 0) FROM table_sessions ts
     WHERE ts.close_shift_id = sh.id AND ts.payment_method = 'transfer')
     AS transfer_kopecks,
+  (SELECT COALESCE(SUM(ts.account_kopecks), 0) FROM table_sessions ts
+    WHERE ts.close_shift_id = sh.id) AS account_kopecks,
   (SELECT COALESCE(SUM(cm.amount_kopecks), 0) FROM cash_movements cm
     WHERE cm.shift_id = sh.id AND cm.kind = 'in') AS cash_in_kopecks,
   (SELECT COALESCE(SUM(cm.amount_kopecks), 0) FROM cash_movements cm
@@ -57,6 +59,9 @@ function toShiftOut(row) {
     cash: kopecksToRubles(row.cash_kopecks),
     card: kopecksToRubles(row.card_kopecks),
     transfer: kopecksToRubles(row.transfer_kopecks),
+    // Оплачено со счетов клиентов: выручка есть, а денег в кассу сейчас
+    // не приходило — они пришли раньше, при пополнении.
+    account: kopecksToRubles(row.account_kopecks ?? 0),
     cash_in: kopecksToRubles(row.cash_in_kopecks ?? 0),
     cash_out: kopecksToRubles(row.cash_out_kopecks ?? 0),
     opening_cash: openingCash,

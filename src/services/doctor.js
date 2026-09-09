@@ -127,6 +127,26 @@ const CHECKS = [
         .all(),
   },
   {
+    code: "session-account-over-total",
+    title: "Со счёта клиента списано больше, чем стоил сеанс",
+    hint:
+      "Оплата со счёта не может превышать итог сеанса: иначе в отчётах " +
+      "наличная выручка уйдёт в минус, а деньги клиента пропадут.",
+    fixable: false,
+    find: (db) =>
+      db
+        .prepare(
+          `SELECT s.id, t.name AS table_name, s.ended_at,
+                  s.account_kopecks, s.total_cost_kopecks
+           FROM table_sessions s
+           JOIN tables t ON t.id = s.table_id
+           WHERE s.ended_at IS NOT NULL
+             AND s.account_kopecks > COALESCE(s.total_cost_kopecks, 0)
+           ORDER BY s.id DESC LIMIT 50`
+        )
+        .all(),
+  },
+  {
     code: "voucher-active-empty",
     title: "Чек считается действующим, но остаток на нём нулевой",
     hint: "Такой чек предлагается кассиру, а играть по нему нечего.",

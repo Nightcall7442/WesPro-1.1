@@ -25,7 +25,10 @@ import { getAllowedTariffIds, getTable, resolveTableTariffId } from "./tables.js
 import { resolveTariffId } from "./tariff-rules.js";
 import { getTariff } from "./tariffs.js";
 import {
+  clientAccountKopecks,
   createVoucher,
+  creditClientAccount,
+  debitClientAccount,
   redeemVoucher,
   reissueVoucher,
   requireUsableVoucher,
@@ -39,10 +42,13 @@ const SESSION_FIELDS = `
   s.payment_method, s.client_id, s.discount_percent,
   s.time_cost_kopecks, s.bar_cost_kopecks, s.is_free,
   s.prepaid_seconds, s.prepaid_kopecks, s.prepaid_mode,
-  s.voucher_kopecks, s.voucher_id, s.promo_name,
+  s.voucher_kopecks, s.voucher_id, s.promo_name, s.account_kopecks,
   t.name AS table_name, tr.name AS tariff_name,
   uo.name AS opened_by_name, uc.name AS closed_by_name,
-  cl.name AS client_name, vch.code AS voucher_code
+  cl.name AS client_name, vch.code AS voucher_code,
+  (SELECT COALESCE(SUM(v.balance_kopecks), 0) FROM vouchers v
+    WHERE v.client_id = s.client_id AND v.kind = 'topup' AND v.status = 'active')
+    AS client_account_kopecks
 `;
 
 const SESSION_JOIN = `
@@ -71,6 +77,29 @@ function barTotalKopecks(db, sessionId) {
  */
 export function computeCheck(db, session, endIso) {
   const club = getClubSettings(db);
+  // Деньги со счёта клиента. Уже потраченное при открытии лежит в
+  // account_kopecks; доступный остаток счёта нужен, чтобы показать
+  // кассиру, сколько из доплаты уйдёт со счёта, а сколько взять деньгами.
+  const spentFromAccount = session.account_kopecks ?? 0;
+  const accountLeft = clientAccountKopecks(db, session.client_id ?? null);
+  /**
+   * Разносит итоговые суммы чека по источникам: что берём со счёта,
+   * что деньгами, и какую сдачу нельзя выдавать из кассы.
+   */
+  const splitAccount = (dueKopecks, changeKopecks = 0) => {
+    const dueFromAccount = Math.min(accountLeft, dueKopecks);
+    // Сдачу за время, оплаченное со счёта, в кассе брать неоткуда —
+    // она возвращается обратно на счёт клиента.
+    const changeToAccount = Math.min(changeKopecks, spentFromAccount);
+    return {
+      paid_from_account_kopecks: spentFromAccount,
+      account_left_kopecks: accountLeft,
+      due_from_account_kopecks: dueFromAccount,
+      due_money_kopecks: dueKopecks - dueFromAccount,
+      change_to_account_kopecks: changeToAccount,
+      change_kopecks: changeKopecks - changeToAccount,
+    };
+  };
   const rawSeconds = Math.max(
     0,
     Math.floor((Date.parse(endIso) - Date.parse(session.started_at)) / 1000)
@@ -95,7 +124,7 @@ export function computeCheck(db, session, endIso) {
       voucher_kopecks: 0,
       voucher_code: null,
       due_kopecks: barCost,
-      change_kopecks: 0,
+      ...splitAccount(barCost),
       voucher_out_kopecks: 0,
       unused_seconds: 0,
       overtime_seconds: 0,
@@ -153,7 +182,10 @@ export function computeCheck(db, session, endIso) {
       // Что происходит в кассе при закрытии.
       due_kopecks: Math.max(0, revenue - cashPaid),
       // Сдача деньгами — только для «на время».
-      change_kopecks: byTime ? Math.max(0, cashPaid - revenue) : 0,
+      ...splitAccount(
+        Math.max(0, revenue - cashPaid),
+        byTime ? Math.max(0, cashPaid - revenue) : 0
+      ),
       // Остаток чеком — для «чека на сумму» и игры «по чеку».
       voucher_out_kopecks: byTime ? 0 : unusedKopecks,
       unused_seconds: Math.max(0, paidSeconds - billedSeconds),
@@ -177,7 +209,7 @@ export function computeCheck(db, session, endIso) {
     voucher_kopecks: 0,
     voucher_code: null,
     due_kopecks: total,
-    change_kopecks: 0,
+    ...splitAccount(total),
     voucher_out_kopecks: 0,
     unused_seconds: 0,
     overtime_seconds: 0,
@@ -221,7 +253,9 @@ function getSession(db, sessionId) {
  *   prepaidAmount — предоплата «на сумму»: рубли, время считается по
  *   тарифу со скидкой; paymentMethod обязателен для предоплаты;
  *   isFree — бесплатное время (время не тарифицируется, бар — как обычно);
- *   право на это проверяется в роуте, здесь только сама механика.
+ *   право на это проверяется в роуте, здесь только сама механика;
+ *   useBalance — сначала списать предоплату со счёта клиента (по умолчанию
+ *   да; кассир может снять галочку, если гость хочет заплатить деньгами).
  */
 export function openSession(
   db,
@@ -235,6 +269,7 @@ export function openSession(
     voucherCode = null,
     paymentMethod = null,
     isFree = false,
+    useBalance = true,
   } = {}
 ) {
   const table = getTable(db, tableId);
@@ -301,9 +336,6 @@ export function openSession(
       }
       prepaid = { seconds, kopecks, mode: "voucher", voucherKopecks: kopecks };
     } else if (prepaidSeconds !== null) {
-      if (!PAYMENT_METHODS.includes(paymentMethod)) {
-        throw new ConflictError("Для предоплаты укажите способ оплаты");
-      }
       const seconds = Number(prepaidSeconds);
       if (!Number.isInteger(seconds) || seconds < 15 * 60 || seconds > 24 * 3600) {
         throw new ConflictError("Оплаченное время: от 15 минут до 24 часов");
@@ -318,9 +350,6 @@ export function openSession(
         voucherKopecks: 0,
       };
     } else {
-      if (!PAYMENT_METHODS.includes(paymentMethod)) {
-        throw new ConflictError("Для предоплаты укажите способ оплаты");
-      }
       const amount = Number(prepaidAmount);
       if (!Number.isFinite(amount) || amount <= 0) {
         throw new ConflictError("Сумма предоплаты должна быть больше нуля");
@@ -334,6 +363,19 @@ export function openSession(
     }
   }
 
+  // Сначала счёт клиента. Гость, который заранее внёс деньги, не должен
+  // платить второй раз: предоплата берётся со счёта, а живыми деньгами
+  // кассир добирает только разницу. Игру «по чеку» это не трогает —
+  // там гость уже назвал код, каким платит.
+  const fromAccount =
+    prepaid && !voucher && useBalance && client
+      ? Math.min(clientAccountKopecks(db, client.id), prepaid.kopecks)
+      : 0;
+  const moneyDue = prepaid && !voucher ? prepaid.kopecks - fromAccount : 0;
+  if (moneyDue > 0 && !PAYMENT_METHODS.includes(paymentMethod)) {
+    throw new ConflictError("Для предоплаты укажите способ оплаты");
+  }
+
   const sessionId = withTransaction(db, () => {
     const { lastInsertRowid } = db
       .prepare(
@@ -341,8 +383,8 @@ export function openSession(
            (table_id, tariff_id, price_per_hour_snapshot, started_at,
             opened_by, shift_id, client_id, discount_percent, promo_name,
             prepaid_seconds, prepaid_kopecks, prepaid_mode,
-            voucher_kopecks, voucher_id, payment_method, is_free)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            voucher_kopecks, voucher_id, account_kopecks, payment_method, is_free)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         table.id,
@@ -359,15 +401,21 @@ export function openSession(
         prepaid?.mode ?? null,
         prepaid?.voucherKopecks ?? 0,
         voucher?.id ?? null,
+        fromAccount,
         // По чеку живых денег нет — способ оплаты пишем «voucher»,
         // чтобы в отчётах такая игра не попала в наличные и карту.
-        prepaid ? (voucher ? "voucher" : paymentMethod) : null,
+        // Так же и со счётом клиента: «balance» — деньги в кассу пришли
+        // при пополнении, второй раз их туда класть нельзя.
+        prepaid ? (voucher ? "voucher" : moneyDue > 0 ? paymentMethod : "balance") : null,
         isFree ? 1 : 0
       );
     const newSessionId = Number(lastInsertRowid);
     db.prepare("UPDATE tables SET status = 'busy' WHERE id = ?").run(table.id);
     // Чек списывается сразу: его остаток ушёл в оплату этого сеанса.
     if (voucher) redeemVoucher(db, voucher.id, newSessionId);
+    if (fromAccount > 0) {
+      debitClientAccount(db, client.id, fromAccount, { sessionId: newSessionId, user });
+    }
     const prepaidNote = prepaid
       ? (voucher
           ? `, по чеку ${voucher.code} на ` +
@@ -387,6 +435,18 @@ export function openSession(
         ` — ${user.name}`,
       { tableId: table.id, sessionId: newSessionId }
     );
+    if (fromAccount > 0) {
+      logEvent(
+        db,
+        JournalEvent.SESSION_OPENED,
+        `Со счёта клиента «${client.name}» списано ` +
+          `${kopecksToRubles(fromAccount).toFixed(2)} ${getClubSettings(db).currency}` +
+          (moneyDue > 0
+            ? `, деньгами добрано ${kopecksToRubles(moneyDue).toFixed(2)}`
+            : " — доплаты нет"),
+        { tableId: table.id, sessionId: newSessionId }
+      );
+    }
     logEvent(db, JournalEvent.LIGHT_ON, `Включён свет над столом «${table.name}»`, {
       tableId: table.id,
       sessionId: newSessionId,
@@ -410,9 +470,15 @@ export function openSession(
  * @param {{minutes?: number | null, amount?: number | null,
  *          paymentMethod?: string | null}} options
  *   minutes — сколько минут добавить; amount — на какую сумму добавить
- *   времени (по тарифу сеанса со скидкой). Указывается одно из двух.
+ *   времени (по тарифу сеанса со скидкой). Указывается одно из двух;
+ *   useBalance — сначала списать со счёта клиента (по умолчанию да).
  */
-export function extendSession(db, tableId, user, { minutes = null, amount = null, paymentMethod = null } = {}) {
+export function extendSession(
+  db,
+  tableId,
+  user,
+  { minutes = null, amount = null, paymentMethod = null, useBalance = true } = {}
+) {
   const table = getTable(db, tableId);
   const session = getOpenSession(db, table.id);
   if (!session) {
@@ -427,9 +493,6 @@ export function extendSession(db, tableId, user, { minutes = null, amount = null
     throw new ConflictError(
       "Сеанс без ограничения времени — время не кончится, продлевать не нужно"
     );
-  }
-  if (!PAYMENT_METHODS.includes(paymentMethod)) {
-    throw new ConflictError("Укажите способ оплаты продления");
   }
   if ((minutes === null) === (amount === null)) {
     throw new ConflictError("Укажите либо минуты, либо сумму продления");
@@ -471,25 +534,48 @@ export function extendSession(db, tableId, user, { minutes = null, amount = null
     throw new ConflictError("Всего оплаченного времени не может быть больше 24 часов");
   }
 
+  // Продление гость тоже оплачивает сначала со счёта.
+  const fromAccount = useBalance
+    ? Math.min(clientAccountKopecks(db, session.client_id ?? null), addKopecks)
+    : 0;
+  const moneyDue = addKopecks - fromAccount;
+  if (moneyDue > 0 && !PAYMENT_METHODS.includes(paymentMethod)) {
+    throw new ConflictError("Укажите способ оплаты продления");
+  }
+
   // Продление — тоже касса, поэтому смена нужна на тех же условиях.
   requireShiftFor(db, user);
 
   withTransaction(db, () => {
     db.prepare(
       `UPDATE table_sessions
-         SET prepaid_seconds = ?, prepaid_kopecks = ?, payment_method = ?
+         SET prepaid_seconds = ?, prepaid_kopecks = ?, payment_method = ?,
+             account_kopecks = account_kopecks + ?
        WHERE id = ?`
     ).run(
       totalSeconds,
       session.prepaid_kopecks + addKopecks,
-      paymentMethod,
+      // Если продление целиком ушло со счёта, способ оплаты сеанса не
+      // трогаем: живых денег в кассу сейчас не поступило.
+      moneyDue > 0 ? paymentMethod : session.payment_method,
+      fromAccount,
       session.id
     );
+    if (fromAccount > 0) {
+      debitClientAccount(db, session.client_id, fromAccount, {
+        sessionId: session.id,
+        user,
+      });
+    }
     logEvent(
       db,
       JournalEvent.SESSION_OPENED,
       `Продлён сеанс на столе «${table.name}»: +${Math.round(addSeconds / 60)} мин ` +
-        `за ${kopecksToRubles(addKopecks).toFixed(2)} ${club.currency} — ${user.name}`,
+        `за ${kopecksToRubles(addKopecks).toFixed(2)} ${club.currency}` +
+        (fromAccount > 0
+          ? `, со счёта клиента ${kopecksToRubles(fromAccount).toFixed(2)}`
+          : "") +
+        ` — ${user.name}`,
       { tableId: table.id, sessionId: session.id }
     );
   });
@@ -623,7 +709,12 @@ function awardBonusHours(db, session, user) {
   return { ...voucher, bonus_hours: owed };
 }
 
-export function closeSession(db, tableId, user, { paymentMethod = null } = {}) {
+export function closeSession(
+  db,
+  tableId,
+  user,
+  { paymentMethod = null, useBalance = true } = {}
+) {
   const table = getTable(db, tableId);
   const session = getOpenSession(db, table.id);
   if (!session) {
@@ -632,21 +723,44 @@ export function closeSession(db, tableId, user, { paymentMethod = null } = {}) {
   const endedAt = utcNow();
   const check = computeCheck(db, session, endedAt);
 
+  // Доплату тоже сначала берём со счёта клиента: гость, положивший
+  // деньги заранее, не должен доставать кошелёк за перебор по времени
+  // или за бар. Деньгами кассир добирает только то, чего не хватило.
+  const paidFromAccount = useBalance ? check.due_from_account_kopecks : 0;
+  const moneyDue = check.due_kopecks - paidFromAccount;
+
+  // Сдача за недоигранное время, оплаченное со счёта, из кассы не
+  // выдаётся: этих денег в ящике нет, они пришли при пополнении. Такая
+  // сдача возвращается обратно на счёт клиента.
+  const refundToAccount = check.change_to_account_kopecks;
+  // Сколько со счёта клиента ушло в выручку этого сеанса.
+  const accountKopecks =
+    check.paid_from_account_kopecks - refundToAccount + paidFromAccount;
+
   // Способ оплаты нужен, только если с гостя ещё берут деньги. Игра по
   // чеку без доплаты так и остаётся «voucher» — в наличные и карту она
   // не попадёт, эти деньги в кассу пришли раньше.
-  if (check.due_kopecks > 0) {
+  if (moneyDue > 0) {
     paymentMethod = paymentMethod ?? session.payment_method ?? "cash";
     if (!PAYMENT_METHODS.includes(paymentMethod)) {
       throw new ConflictError(
         `Недопустимый способ оплаты «${paymentMethod}» (cash, card или transfer)`
       );
     }
+  } else if (accountKopecks > 0 && accountKopecks >= check.total_kopecks) {
+    // Весь сеанс оплачен со счёта — в наличные и карту он не попадёт.
+    paymentMethod = "balance";
   } else {
+    // Живых денег сейчас не берём. «voucher» сохраняем — эти деньги
+    // пришли раньше по чеку. А «balance» здесь не годится: часть сеанса
+    // всё-таки оплачена деньгами, и она должна попасть в кассу.
     paymentMethod =
-      session.payment_method && !PAYMENT_METHODS.includes(session.payment_method)
-        ? session.payment_method // «voucher»
-        : paymentMethod ?? session.payment_method ?? "cash";
+      session.payment_method === "voucher"
+        ? "voucher"
+        : paymentMethod ??
+          (PAYMENT_METHODS.includes(session.payment_method)
+            ? session.payment_method
+            : "cash");
     if (
       paymentMethod !== "voucher" &&
       !PAYMENT_METHODS.includes(paymentMethod)
@@ -669,18 +783,28 @@ export function closeSession(db, tableId, user, { paymentMethod = null } = {}) {
     db.prepare(
       `UPDATE table_sessions SET ended_at = ?, total_cost_kopecks = ?,
          time_cost_kopecks = ?, bar_cost_kopecks = ?, payment_method = ?,
-         closed_by = ?, close_shift_id = ? WHERE id = ?`
+         account_kopecks = ?, closed_by = ?, close_shift_id = ? WHERE id = ?`
     ).run(
       endedAt,
       check.total_kopecks,
       check.time_cost_kopecks,
       check.bar_cost_kopecks,
       paymentMethod,
+      accountKopecks,
       user.id,
       closeShiftId,
       session.id
     );
     db.prepare("UPDATE tables SET status = 'free' WHERE id = ?").run(table.id);
+    if (paidFromAccount > 0) {
+      debitClientAccount(db, session.client_id, paidFromAccount, {
+        sessionId: session.id,
+        user,
+      });
+    }
+    if (refundToAccount > 0) {
+      creditClientAccount(db, session.client_id, refundToAccount, { user });
+    }
 
     // Неиспользованный остаток чека на сумму не возвращаем деньгами —
     // выдаём чек, по которому гость доиграет в другой день. Если гость
@@ -714,8 +838,9 @@ export function closeSession(db, tableId, user, { paymentMethod = null } = {}) {
     bonusVoucher = awardBonusHours(db, session, user);
 
     const methodLabel =
-      { cash: "наличные", card: "карта", transfer: "перевод" }[paymentMethod] ??
-      "по чеку";
+      { cash: "наличные", card: "карта", transfer: "перевод", balance: "со счёта клиента" }[
+        paymentMethod
+      ] ?? "по чеку";
     logEvent(
       db,
       JournalEvent.SESSION_CLOSED,
@@ -738,6 +863,9 @@ export function closeSession(db, tableId, user, { paymentMethod = null } = {}) {
     issued_voucher: issuedVoucher ?? null,
     // Остаток вернулся на прежний чек — код у гостя не поменялся.
     reused_voucher: reusedVoucher,
+    // Сколько ушло со счёта клиента и сколько вернулось на счёт.
+    paid_from_account: kopecksToRubles(accountKopecks),
+    refunded_to_account: kopecksToRubles(refundToAccount),
     bonus_voucher: bonusVoucher ?? null,
   };
 }

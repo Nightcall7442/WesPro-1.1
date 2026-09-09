@@ -34,6 +34,11 @@ export function sessionToOut(session) {
     voucher_code: session.voucher_code ?? null,
     paid_by_voucher:
       session.voucher_kopecks ? kopecksToRubles(session.voucher_kopecks) : 0,
+    // Сколько по сеансу ушло со счёта клиента (пополнений).
+    paid_from_account:
+      session.account_kopecks ? kopecksToRubles(session.account_kopecks) : 0,
+    // Остаток счёта клиента на сейчас — из него берут продление и доплату.
+    client_account: kopecksToRubles(session.client_account_kopecks ?? 0),
     prepaid_amount:
       session.prepaid_kopecks === null || session.prepaid_kopecks === undefined
         ? null

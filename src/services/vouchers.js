@@ -332,3 +332,135 @@ export function topUpClient(db, clientId, user, { amount, paymentMethod = "cash"
   });
   return voucher;
 }
+
+/**
+ * Счёт клиента — деньги, которые он внёс заранее («Касса» → «Пополнить
+ * счёт»). Это только пополнения: чеки на остаток и подарочные чеки лежат
+ * у гостя на руках с кодом, сами собой они не списываются.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {number | null} clientId
+ * @returns {number} остаток счёта в копейках
+ */
+export function clientAccountKopecks(db, clientId) {
+  if (!clientId) return 0;
+  return db
+    .prepare(
+      `SELECT COALESCE(SUM(balance_kopecks), 0) AS total
+         FROM vouchers
+        WHERE client_id = ? AND kind = 'topup' AND status = 'active'`
+    )
+    .get(clientId).total;
+}
+
+/**
+ * Списывает со счёта клиента сколько получится, но не больше запрошенного.
+ * Пополнения тратятся по очереди — сначала самое старое: так деньги не
+ * «зависают» на давнем пополнении, и остаток счёта расходуется предсказуемо.
+ *
+ * Овердрафта нет: если на счету меньше нужного, спишется сколько есть, а
+ * остальное кассир возьмёт деньгами. Пополнение, дошедшее до нуля,
+ * помечается использованным — иначе оно так и висело бы в списке чеков.
+ *
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {number | null} clientId
+ * @param {number} amountKopecks сколько хотим списать
+ * @param {{sessionId?: number | null,
+ *          user?: {id: number, name: string} | null}} [options]
+ * @returns {number} сколько списали (0 — счёт пуст или списывать нечего)
+ */
+export function debitClientAccount(db, clientId, amountKopecks, { sessionId = null, user = null } = {}) {
+  const want = Math.round(Number(amountKopecks));
+  if (!clientId || !Number.isInteger(want) || want <= 0) return 0;
+  const rows = db
+    .prepare(
+      `SELECT id, code, balance_kopecks FROM vouchers
+        WHERE client_id = ? AND kind = 'topup' AND status = 'active'
+          AND balance_kopecks > 0
+        ORDER BY created_at, id`
+    )
+    .all(clientId);
+
+  let left = want;
+  let taken = 0;
+  for (const row of rows) {
+    if (left <= 0) break;
+    const part = Math.min(left, row.balance_kopecks);
+    const rest = row.balance_kopecks - part;
+    if (rest === 0) {
+      // Пополнение израсходовано до конца — помечаем использованным,
+      // иначе оно так и висело бы в списке действующих чеков.
+      db.prepare(
+        `UPDATE vouchers
+            SET balance_kopecks = 0, status = 'used',
+                redeemed_session_id = COALESCE(redeemed_session_id, ?),
+                redeemed_at = ?
+          WHERE id = ?`
+      ).run(sessionId, utcNow(), row.id);
+    } else {
+      db.prepare("UPDATE vouchers SET balance_kopecks = ? WHERE id = ?").run(rest, row.id);
+    }
+    left -= part;
+    taken += part;
+  }
+
+  if (taken > 0) {
+    const client = getClient(db, clientId);
+    logEvent(
+      db,
+      JournalEvent.CLIENT_DEBIT,
+      `Со счёта клиента «${client.name}» списано ` +
+        `${kopecksToRubles(taken).toFixed(2)} ${getClubSettings(db).currency}` +
+        `, остаток счёта ${kopecksToRubles(clientAccountKopecks(db, clientId)).toFixed(2)}` +
+        (user ? ` — ${user.name}` : ""),
+      { sessionId: sessionId ?? undefined }
+    );
+  }
+  return taken;
+}
+
+/**
+ * Возвращает деньги на счёт клиента — например, когда он оплатил час со
+ * счёта, а доиграл только полчаса: разницу нельзя выдать из кассы (этих
+ * денег там сейчас нет, они пришли при пополнении), поэтому она ложится
+ * обратно на счёт.
+ *
+ * Чтобы у гостя не плодились коды, доливаем в самое свежее действующее
+ * пополнение; если все израсходованы — заводим новое.
+ *
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {number | null} clientId
+ * @param {number} amountKopecks
+ * @param {{user?: {id: number, name: string} | null}} [options]
+ * @returns {number} сколько вернули
+ */
+export function creditClientAccount(db, clientId, amountKopecks, { user = null } = {}) {
+  const amount = Math.round(Number(amountKopecks));
+  if (!clientId || !Number.isInteger(amount) || amount <= 0) return 0;
+  const latest = db
+    .prepare(
+      `SELECT id FROM vouchers
+        WHERE client_id = ? AND kind = 'topup' AND status = 'active'
+        ORDER BY created_at DESC, id DESC LIMIT 1`
+    )
+    .get(clientId);
+  if (latest) {
+    db.prepare(
+      `UPDATE vouchers
+          SET balance_kopecks = balance_kopecks + ?,
+              amount_kopecks = MAX(amount_kopecks, balance_kopecks + ?)
+        WHERE id = ?`
+    ).run(amount, amount, latest.id);
+  } else {
+    createVoucher(db, { amountKopecks: amount, clientId, user, kind: "topup" });
+  }
+  const client = getClient(db, clientId);
+  logEvent(
+    db,
+    JournalEvent.CLIENT_TOPUP,
+    `На счёт клиента «${client.name}» возвращено ` +
+      `${kopecksToRubles(amount).toFixed(2)} ${getClubSettings(db).currency} ` +
+      `за неиспользованное оплаченное время` +
+      (user ? ` — ${user.name}` : "")
+  );
+  return amount;
+}

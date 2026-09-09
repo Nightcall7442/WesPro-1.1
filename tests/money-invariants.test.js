@@ -174,3 +174,316 @@ test("остаток чека никогда не превышает уплач�
   );
   assert.equal(recognisedRevenue(db), 600, "выручка — вся полученная сумма");
 });
+
+// --- Счёт клиента ---------------------------------------------------------
+//
+// Пополнение — это ещё не выручка: гость просто отдал деньги в кассу
+// заранее. Выручкой они становятся в ДЕНЬ ИГРЫ, когда гость на них
+// действительно поиграл. Поэтому в кассе такие деньги считаются один раз
+// (при пополнении, движением «внесено»), а в выручке — один раз (в день
+// игры). Двойного счёта быть не должно ни там, ни там.
+
+/** Остаток счёта клиента (только пополнения), в рублях. */
+function accountBalance(db, clientId) {
+  return (
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(balance_kopecks), 0) AS total FROM vouchers
+          WHERE client_id = ? AND kind = 'topup' AND status = 'active'`
+      )
+      .get(clientId).total / 100
+  );
+}
+
+async function makeClient(agent, name = "Гость Счётный") {
+  const res = await agent.post("/api/clients").send({ name });
+  if (res.status !== 201) throw new Error(`createClient: ${res.status}`);
+  return res.body;
+}
+
+test("пополнение — это не выручка: деньги признаются в день игры", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app, { withShift: false });
+  await admin.post("/api/shifts/open").send({ opening_cash: 0 });
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin, "Тариф", 600);
+  const client = await makeClient(admin);
+
+  // Гость кладёт 1000 наличными.
+  const topup = await admin
+    .post(`/api/clients/${client.id}/topup`)
+    .send({ amount: 1000, payment_method: "cash" });
+  assert.equal(topup.status, 201);
+
+  let shift = await admin.get("/api/shifts/current");
+  assert.equal(recognisedRevenue(db), 0, "пополнение выручкой ещё не стало");
+  assert.equal(shift.body.cash_in, 1000, "деньги легли в кассу движением «внесено»");
+  assert.equal(shift.body.revenue, 0, "выручки смены пополнение не добавило");
+  assert.equal(shift.body.expected_cash, 1000, "в ящике должна быть тысяча");
+
+  // Играет постоплатой на 600 — деньги должны уйти со счёта сами.
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+  });
+  assert.equal(opened.status, 201);
+  playedFor(db, opened.body.id, 60);
+  const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+  assert.equal(closed.status, 200);
+
+  assert.equal(closed.body.total_cost, 600, "сыграно на 600");
+  assert.equal(closed.body.payment_method, "balance", "оплачено со счёта, а не деньгами");
+  assert.equal(accountBalance(db, client.id), 400, "на счету осталось 400");
+  assert.equal(recognisedRevenue(db), 600, "выручка признана в день игры");
+
+  shift = await admin.get("/api/shifts/current");
+  assert.equal(shift.body.cash, 0, "наличной выручки нет — деньги пришли раньше");
+  assert.equal(shift.body.account, 600, "оплата со счёта видна отдельной строкой");
+  assert.equal(shift.body.revenue, 600, "выручка смены — ровно сыгранное");
+  assert.equal(
+    shift.body.expected_cash,
+    1000,
+    "в ящике по-прежнему тысяча: со счёта деньги повторно не берутся"
+  );
+});
+
+test("счёта не хватило — разницу гость доплачивает деньгами, и только её", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app, { withShift: false });
+  await admin.post("/api/shifts/open").send({ opening_cash: 0 });
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin, "Тариф", 600);
+  const client = await makeClient(admin);
+
+  await admin
+    .post(`/api/clients/${client.id}/topup`)
+    .send({ amount: 300, payment_method: "cash" });
+
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+  });
+  playedFor(db, opened.body.id, 60);
+
+  // Кассир видит разбивку заранее — иначе возьмёт с гостя лишнее.
+  const check = await admin.get(`/api/tables/${table.id}/check`);
+  assert.equal(check.body.due, 600);
+  assert.equal(check.body.due_from_account, 300, "300 уйдёт со счёта");
+  assert.equal(check.body.due_money, 300, "300 берём деньгами");
+
+  const closed = await admin
+    .post(`/api/tables/${table.id}/close`)
+    .send({ payment_method: "cash" });
+  assert.equal(closed.body.total_cost, 600);
+  assert.equal(closed.body.payment_method, "cash", "часть взяли деньгами");
+  assert.equal(accountBalance(db, client.id), 0, "счёт израсходован до нуля");
+
+  const shift = await admin.get("/api/shifts/current");
+  assert.equal(shift.body.cash, 300, "в наличных только доплата");
+  assert.equal(shift.body.account, 300, "остальное — со счёта");
+  assert.equal(shift.body.revenue, 600, "выручка целиком");
+  assert.equal(
+    shift.body.expected_cash,
+    600,
+    "в ящике 300 от пополнения плюс 300 доплаты"
+  );
+});
+
+test("оплатил час со счёта, доиграл полчаса — разница возвращается на счёт", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app, { withShift: false });
+  await admin.post("/api/shifts/open").send({ opening_cash: 0 });
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin, "Тариф", 600);
+  const client = await makeClient(admin);
+
+  await admin
+    .post(`/api/clients/${client.id}/topup`)
+    .send({ amount: 1000, payment_method: "cash" });
+
+  // Час вперёд — способ оплаты не нужен, счёт закрывает всю сумму.
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+    mode: "time",
+    minutes: 60,
+  });
+  assert.equal(opened.status, 201, "деньги за предоплату брать не надо");
+  assert.equal(accountBalance(db, client.id), 400, "со счёта сразу списан час");
+
+  playedFor(db, opened.body.id, 30);
+  const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+  assert.equal(closed.body.total_cost, 300, "сыграно полчаса");
+  assert.equal(
+    accountBalance(db, client.id),
+    700,
+    "недоигранные 300 вернулись на счёт, а не выданы из кассы"
+  );
+
+  const shift = await admin.get("/api/shifts/current");
+  assert.equal(shift.body.cash, 0, "из кассы сдачу не выдавали");
+  assert.equal(shift.body.revenue, 300, "выручка — только сыгранное");
+  assert.equal(
+    shift.body.expected_cash,
+    1000,
+    "в ящике та же тысяча: сдача ушла на счёт клиента"
+  );
+});
+
+test("деньги клиента не пропадают: пополнено = сыграно + остаток на счету", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin, "Тариф", 600);
+  const client = await makeClient(admin);
+
+  await admin
+    .post(`/api/clients/${client.id}/topup`)
+    .send({ amount: 1000, payment_method: "cash" });
+
+  // Три визита подряд по 10 минут (по 100 за визит).
+  for (const визит of [1, 2, 3]) {
+    const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+      tariff_id: tariff.id,
+      client_id: client.id,
+    });
+    assert.equal(opened.status, 201, `визит ${визит}: стол открыт`);
+    playedFor(db, opened.body.id, 10);
+    const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+    assert.equal(closed.status, 200, `визит ${визит}: стол закрыт`);
+  }
+
+  assert.equal(
+    recognisedRevenue(db) + accountBalance(db, client.id),
+    1000,
+    "сыгранное плюс остаток счёта = внесённое, ни копейкой больше"
+  );
+  assert.equal(accountBalance(db, client.id), 700, "с трёх визитов ушло 300");
+});
+
+test("кассир может не трогать счёт: гость платит деньгами", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app, { withShift: false });
+  await admin.post("/api/shifts/open").send({ opening_cash: 0 });
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin, "Тариф", 600);
+  const client = await makeClient(admin);
+
+  await admin
+    .post(`/api/clients/${client.id}/topup`)
+    .send({ amount: 1000, payment_method: "cash" });
+
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+  });
+  playedFor(db, opened.body.id, 60);
+  const closed = await admin
+    .post(`/api/tables/${table.id}/close`)
+    .send({ payment_method: "cash", use_balance: false });
+
+  assert.equal(closed.body.payment_method, "cash");
+  assert.equal(accountBalance(db, client.id), 1000, "счёт остался нетронутым");
+
+  const shift = await admin.get("/api/shifts/current");
+  assert.equal(shift.body.cash, 600, "все 600 взяли наличными");
+  assert.equal(shift.body.expected_cash, 1600, "в ящике пополнение плюс оплата");
+});
+
+test("чек на остаток сам не списывается — гость называет его код", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin, "Тариф", 600);
+  const client = await makeClient(admin);
+
+  // Гость оставил недоигранное — на остаток выдан чек с кодом.
+  const first = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+    mode: "amount",
+    amount: 600,
+    payment_method: "cash",
+  });
+  playedFor(db, first.body.id, 10);
+  const closed1 = await admin.post(`/api/tables/${table.id}/close`).send({});
+  const code = closed1.body.issued_voucher.code;
+  assert.equal(closed1.body.issued_voucher.balance, 500);
+
+  // Следующий визит постоплатой: чек на остаток трогать нельзя — он у
+  // гостя на руках, и он сам решает, когда им играть.
+  const second = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+  });
+  playedFor(db, second.body.id, 10);
+  const closed2 = await admin
+    .post(`/api/tables/${table.id}/close`)
+    .send({ payment_method: "cash" });
+
+  assert.equal(closed2.body.payment_method, "cash", "взяли деньгами, чек не тронули");
+  const voucher = await admin.get(`/api/vouchers/by-code/${code}`);
+  assert.equal(voucher.body.balance, 500, "остаток чека не изменился");
+  assert.equal(voucher.body.status, "active");
+});
+
+test("продление тоже идёт со счёта клиента", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app, { withShift: false });
+  await admin.post("/api/shifts/open").send({ opening_cash: 0 });
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin, "Тариф", 600);
+  const client = await makeClient(admin);
+
+  await admin
+    .post(`/api/clients/${client.id}/topup`)
+    .send({ amount: 1000, payment_method: "cash" });
+
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+    mode: "time",
+    minutes: 30,
+  });
+  assert.equal(opened.status, 201);
+  assert.equal(accountBalance(db, client.id), 700, "полчаса — 300 со счёта");
+
+  // Способ оплаты не указываем: на счету хватает.
+  const extended = await admin
+    .post(`/api/tables/${table.id}/extend`)
+    .send({ minutes: 30 });
+  assert.equal(extended.status, 200);
+  assert.equal(accountBalance(db, client.id), 400, "продление тоже ушло со счёта");
+
+  playedFor(db, opened.body.id, 60);
+  const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+  assert.equal(closed.body.total_cost, 600, "сыгран целый час");
+  assert.equal(closed.body.payment_method, "balance");
+
+  const shift = await admin.get("/api/shifts/current");
+  assert.equal(shift.body.cash, 0);
+  assert.equal(shift.body.revenue, 600);
+  assert.equal(shift.body.expected_cash, 1000, "в ящике только пополнение");
+});
+
+test("без клиента ничего не списывается — обычная оплата деньгами", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app, { withShift: false });
+  await admin.post("/api/shifts/open").send({ opening_cash: 0 });
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin, "Тариф", 600);
+
+  const opened = await admin
+    .post(`/api/tables/${table.id}/open`)
+    .send({ tariff_id: tariff.id });
+  playedFor(db, opened.body.id, 60);
+  const closed = await admin
+    .post(`/api/tables/${table.id}/close`)
+    .send({ payment_method: "cash" });
+
+  assert.equal(closed.body.payment_method, "cash");
+  assert.equal(closed.body.paid_from_account, 0);
+  const shift = await admin.get("/api/shifts/current");
+  assert.equal(shift.body.cash, 600);
+  assert.equal(shift.body.account, 0);
+});

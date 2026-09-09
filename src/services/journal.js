@@ -25,6 +25,7 @@ export const JournalEvent = Object.freeze({
   BOOKING_CANCELLED: "booking_cancelled",
   CLIENT_CREATED: "client_created",
   CLIENT_TOPUP: "client_topup",
+  CLIENT_DEBIT: "client_debit",
 });
 
 /**

@@ -490,7 +490,9 @@ export function createApiRouter(db) {
     // Режимы: postpaid (по умолчанию), time (минуты вперёд), amount (сумма),
     // free (бесплатное время — отдельное право).
     const mode = req.body?.mode ?? "postpaid";
-    const options = { clientId };
+    // Деньги со счёта клиента списываются сами; кассир может отказаться
+    // (гость хочет заплатить наличными и сохранить счёт).
+    const options = { clientId, useBalance: req.body?.use_balance !== false };
     if (mode === "time") {
       options.prepaidSeconds = Math.round(Number(req.body?.minutes) * 60);
       options.paymentMethod = req.body?.payment_method ?? null;
@@ -529,6 +531,7 @@ export function createApiRouter(db) {
             ? null
             : Number(body.amount),
           paymentMethod: body.payment_method ?? null,
+          useBalance: body.use_balance !== false,
         })
       )
     );
@@ -551,7 +554,10 @@ export function createApiRouter(db) {
     const tableId = intParam(req.params.id);
     if (tableId === null) return res.status(404).json({ detail: "Стол не найден" });
     const paymentMethod = req.body?.payment_method ?? null;
-    const closed = closeSession(db, tableId, req.user, { paymentMethod });
+    const closed = closeSession(db, tableId, req.user, {
+      paymentMethod,
+      useBalance: req.body?.use_balance !== false,
+    });
     // Выданный чек на остаток отдаём вместе с сеансом: его код кассир
     // сообщает гостю и печатает на чеке.
     res.json({
@@ -559,6 +565,9 @@ export function createApiRouter(db) {
       issued_voucher: closed.issued_voucher ? voucherToOut(closed.issued_voucher) : null,
       // true — остаток лёг на прежний чек, код гостю называть не нужно.
       reused_voucher: Boolean(closed.reused_voucher),
+      // Сколько ушло со счёта клиента и сколько вернулось на счёт.
+      paid_from_account: closed.paid_from_account ?? 0,
+      refunded_to_account: closed.refunded_to_account ?? 0,
       // Подарочный чек за наигранные часы (акция «каждый N-й час»).
       bonus_voucher: closed.bonus_voucher
         ? { ...voucherToOut(closed.bonus_voucher), bonus_hours: closed.bonus_voucher.bonus_hours }
@@ -594,6 +603,12 @@ export function createApiRouter(db) {
       prepaid_seconds: check.prepaid_seconds,
       due: kopecksToRubles(check.due_kopecks),
       change: kopecksToRubles(check.change_kopecks),
+      // Счёт клиента: что уже списано, что осталось и как разложится доплата.
+      paid_from_account: kopecksToRubles(check.paid_from_account_kopecks),
+      account_left: kopecksToRubles(check.account_left_kopecks),
+      due_from_account: kopecksToRubles(check.due_from_account_kopecks),
+      due_money: kopecksToRubles(check.due_money_kopecks),
+      change_to_account: kopecksToRubles(check.change_to_account_kopecks),
       prepaid_mode: check.prepaid_mode,
       // Остаток, который при закрытии станет чеком (для «чека на сумму»).
       voucher_out: kopecksToRubles(check.voucher_out_kopecks),
@@ -800,6 +815,10 @@ export function createApiRouter(db) {
                 prepaid_mode: session.prepaid_mode ?? null,
                 voucher_code: session.voucher_code ?? null,
                 payment_method: session.payment_method ?? null,
+                // Счёт клиента: из него сначала списывается продление и
+                // доплата при закрытии.
+                client_account: kopecksToRubles(session.client_account_kopecks ?? 0),
+                paid_from_account: kopecksToRubles(session.account_kopecks ?? 0),
                 remaining_seconds: prepaid
                   ? session.prepaid_seconds - elapsed
                   : null,
@@ -1129,7 +1148,13 @@ export function createApiRouter(db) {
   // Создавать клиентов может любой сотрудник; менять скидку — администратор.
 
   router.get("/clients", (req, res) => {
-    res.json(listClients(db, { query: String(req.query.query ?? "") }));
+    res.json(
+      listClients(db, { query: String(req.query.query ?? "") }).map((client) => ({
+        ...client,
+        // Счёт клиента в рублях — кассир видит его при открытии стола.
+        account: kopecksToRubles(client.account_kopecks ?? 0),
+      }))
+    );
   });
 
   router.post("/clients", (req, res) => {
