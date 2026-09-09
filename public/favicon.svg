@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Иконка вкладки браузера: без неё браузер просил /favicon.ico и
+       получал 404 — в консоли это выглядело как ошибка. -->
+  <rect width="32" height="32" rx="7" fill="#24282e"/>
+  <circle cx="16" cy="16" r="8.5" fill="none" stroke="#f2f4f7" stroke-width="2"/>
+  <circle cx="16" cy="16" r="3" fill="#f2f4f7"/>
+</svg>

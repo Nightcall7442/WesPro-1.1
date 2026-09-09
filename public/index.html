@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Бильярдный клуб</title>
+  <!-- Шрифт с Google Fonts грузится не блокируя страницу — если у клуба
+       нет интернета (только локальная сеть), просто останется системный. -->
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    onload="this.onload=null;this.rel='stylesheet'">
+  <script>
+    // Тема ставится до отрисовки — иначе на миг видно другую.
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("billiards_theme") === "dark" ? "dark" : "light";
+    } catch (e) {
+      document.documentElement.dataset.theme = "light";
+    }
+  </script>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="layout">
+  <aside id="sidebar" class="sidebar">
+    <button id="sidebar-toggle" class="nav-item nav-toggle" title="Свернуть/развернуть">
+      <span class="nav-icon" id="sidebar-arrow">«</span><span class="nav-label">Свернуть</span>
+    </button>
+    <nav class="side-nav">
+      <button class="tab nav-item active" data-tab="dashboard" title="Залы">
+        <span class="nav-icon"><i class="ic ic-ball"></i></span><span class="nav-label">Залы</span>
+      </button>
+      <button class="tab nav-item" data-tab="clients" title="Клиенты">
+        <span class="nav-icon"><i class="ic ic-people"></i></span><span class="nav-label">Клиенты</span>
+      </button>
+      <button class="tab nav-item" data-tab="history" title="История">
+        <span class="nav-icon"><i class="ic ic-clock"></i></span><span class="nav-label">История</span>
+      </button>
+      <button class="tab nav-item" data-tab="cashdesk" title="Касса">
+        <span class="nav-icon"><i class="ic ic-card"></i></span><span class="nav-label">Касса</span>
+      </button>
+      <button class="tab nav-item" data-tab="journal" data-permission="view_journal" hidden title="Журнал">
+        <span class="nav-icon"><i class="ic ic-doc"></i></span><span class="nav-label">Журнал</span>
+      </button>
+      <button class="tab nav-item" data-tab="reports" data-permission="view_reports" hidden title="Статистика">
+        <span class="nav-icon"><i class="ic ic-chart"></i></span><span class="nav-label">Статистика</span>
+      </button>
+      <button class="tab nav-item" data-tab="shifts" data-permission="view_shifts" hidden title="Смены">
+        <span class="nav-icon"><i class="ic ic-calendar"></i></span><span class="nav-label">Смены</span>
+      </button>
+      <button class="tab nav-item" data-tab="tariffs" data-permission="manage_tariffs" hidden title="Зоны и тарифы">
+        <span class="nav-icon"><i class="ic ic-tag"></i></span><span class="nav-label">Зоны и тарифы</span>
+      </button>
+      <button class="tab nav-item" data-tab="users" data-permission="manage_users" hidden title="Пользователи">
+        <span class="nav-icon"><i class="ic ic-person"></i></span><span class="nav-label">Пользователи</span>
+      </button>
+      <button class="tab nav-item" data-tab="settings" data-permission="manage_settings" hidden title="Настройки">
+        <span class="nav-icon"><i class="ic ic-sliders"></i></span><span class="nav-label">Настройки</span>
+      </button>
+    </nav>
+  </aside>
+
+  <div class="content">
+  <header class="topbar">
+    <h1>
+      <img id="club-logo" class="club-logo" alt="" hidden>
+      <span id="club-title">Бильярдный клуб</span>
+    </h1>
+    <div class="user-area">
+      <button id="theme-toggle" class="mini" title="Тёмная/светлая тема"><i class="ic ic-theme"></i></button>
+      <button id="help-keys" class="mini" title="Горячие клавиши (F1)">?</button>
+      <button id="cash-move-btn" class="mini" title="Выдать из кассы или внести в кассу">Внести/выдать</button>
+      <button id="shift-toggle" class="mini"></button>
+      <span id="user-chip" class="user-chip"></span>
+      <button id="logout-btn" class="mini">Выйти</button>
+    </div>
+  </header>
+
+  <main>
+
+    <section id="tab-dashboard" class="tab-panel">
+      <div class="dash-head">
+        <!-- «Выбрать все» показывается только когда уже выбран хотя бы один
+             стол: до этого кнопка не нужна и только занимает место. -->
+        <button id="select-all" class="mini" hidden>Выбрать все</button>
+        <button id="selection-chip" class="mini selection-chip" hidden></button>
+        <button id="edit-plan" class="mini" data-permission="manage_tables" hidden><i class="ic ic-pencil"></i>Редактор зала</button>
+        <div class="legend">
+          <span><i class="dot dot-free"></i>свободен</span>
+          <span><i class="dot dot-busy"></i>занят</span>
+          <span><i class="dot dot-prepaid"></i>предоплата</span>
+          <span><i class="dot dot-expired"></i>время вышло</span>
+          <span><i class="dot dot-booked"></i>скоро бронь</span>
+        </div>
+        <span id="club-load" class="club-load"></span>
+      </div>
+      <div id="map-wrap" class="map-wrap" hidden>
+        <div class="plan-scroll">
+          <div id="plan" class="plan"></div>
+        </div>
+        <div id="editor-palette" class="palette-panel" hidden>
+          <h3>Элементы</h3>
+          <button class="pal-tool" data-tool="move"><i class="ic ic-move"></i>Двигать / растягивать</button>
+          <button class="pal-tool" data-tool="wall"><i class="ic ic-wall"></i>Стена</button>
+          <button class="pal-tool" data-tool="door"><i class="ic ic-door"></i>Дверь</button>
+          <div class="pal-sep">Интерьер</div>
+          <button class="pal-tool" data-tool="sofa"><i class="ic ic-sofa"></i>Диван</button>
+          <button class="pal-tool" data-tool="armchair"><i class="ic ic-armchair"></i>Кресло</button>
+          <button class="pal-tool" data-tool="deco_table"><i class="ic ic-deco_table"></i>Стол (мебель)</button>
+          <button class="pal-tool" data-tool="tv"><i class="ic ic-tv"></i>Телевизор</button>
+          <button class="pal-tool" data-tool="erase"><i class="ic ic-eraser"></i>Ластик</button>
+          <p class="hint">
+            «Двигать / растягивать» — тяните стол, стену или мебель; за
+            уголок меняется размер. Стена и дверь рисуются протяжкой по
+            клеткам, мебель ставится кликом. Ластик удаляет элемент, а
+            если кликнуть им по столу — удалит стол (с подтверждением).
+          </p>
+
+          <div class="pal-sep">Столы</div>
+          <form id="add-table-form" class="pal-form">
+            <input id="new-table-name" type="text" placeholder="Название стола" required maxlength="100">
+            <select id="new-table-kind">
+              <option value="billiard">Бильярдный стол</option>
+              <option value="ps3">PlayStation 3</option>
+              <option value="ps4">PlayStation 4</option>
+              <option value="ps5">PlayStation 5</option>
+              <option value="tv">Телевизор</option>
+            </select>
+            <button type="submit" class="mini">Добавить стол</button>
+          </form>
+          <p class="hint">
+            Новый стол появится в левом верхнем углу — перетащите его на
+            место. Удалить стол: инструмент «Ластик» и клик по столу.
+          </p>
+          <div class="grid-set">Сетка:
+            <input id="plan-cols" type="number" min="10" max="120"> ×
+            <input id="plan-rows" type="number" min="8" max="80"> клеток
+          </div>
+          <div class="settings-actions">
+            <button id="plan-save" class="primary">Сохранить план</button>
+            <button id="plan-cancel" class="mini">Отмена</button>
+          </div>
+        </div>
+      </div>
+      <div id="tables" class="cards"></div>
+      <!-- Режим для телефона: крупный список столов вместо карты зала. -->
+      <div id="phone-list" class="phone-list" hidden></div>
+      <p class="hint" style="margin-top:14px">
+        Клик по плитке — выбрать (можно несколько) · двойной клик — меню действий ·
+        правый клик — действия со столом или со всеми выбранными.
+        Добавить или удалить стол — в «Редакторе зала».
+      </p>
+    </section>
+
+    <section id="tab-history" class="tab-panel" hidden>
+      <table class="data-table">
+        <thead>
+          <tr><th>Стол</th><th>Тариф</th><th>Начало</th><th>Длительность</th><th>Итог, ₽</th><th>Оплата</th><th>Кассир</th><th></th></tr>
+        </thead>
+        <tbody id="history-rows"></tbody>
+      </table>
+      <p id="history-empty" class="empty" hidden>Закрытых сеансов пока нет.</p>
+    </section>
+
+    <section id="tab-journal" class="tab-panel" hidden>
+      <table class="data-table">
+        <thead>
+          <tr><th>Время</th><th>Событие</th><th>Описание</th></tr>
+        </thead>
+        <tbody id="journal-rows"></tbody>
+      </table>
+      <p id="journal-empty" class="empty" hidden>Журнал пуст.</p>
+    </section>
+
+    <section id="tab-tariffs" class="tab-panel" hidden>
+      <table class="data-table">
+        <thead>
+          <tr><th>Название</th><th>Цена, ₽/час</th><th>Активен</th><th></th></tr>
+        </thead>
+        <tbody id="tariff-rows"></tbody>
+      </table>
+      <form id="add-tariff-form" class="inline-form">
+        <input id="new-tariff-name" type="text" placeholder="Название тарифа" required maxlength="100">
+        <input id="new-tariff-price" type="number" placeholder="₽/час" required min="1" step="1">
+        <button type="submit">Добавить тариф</button>
+      </form>
+
+      <div class="settings-card" style="margin-top:24px">
+        <h3>Расписание тарифов</h3>
+        <p class="hint">
+          Система сама подставит тариф при открытии стола по дню недели и
+          времени (пояс клуба — в «Настройках»). Кассир может выбрать другой
+          тариф вручную. Интервал «через полночь» (например 22:00–08:00)
+          относится ко дню начала.
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr><th>Тариф</th><th>Дни</th><th>Время</th><th></th></tr>
+          </thead>
+          <tbody id="rule-rows"></tbody>
+        </table>
+        <p id="rules-empty" class="empty" hidden>Правил нет — тариф выбирается вручную.</p>
+        <div class="settings-grid" style="margin-top:16px">
+          <label class="field">Тариф
+            <select id="rule-tariff"></select>
+          </label>
+          <label class="field">Дни недели
+            <div id="rule-days" class="days-picker"></div>
+          </label>
+          <label class="field">С
+            <input id="rule-start" type="time" value="10:00">
+          </label>
+          <label class="field">До
+            <input id="rule-end" type="time" value="22:00">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="add-rule-btn" class="primary">Добавить правило</button>
+        </div>
+      </div>
+
+      <div class="settings-card" style="margin-top:24px">
+        <h3>Акции: счастливый час</h3>
+        <p class="hint">
+          Скидка на время игры по дням недели и часам — поверх любого
+          тарифа. Со скидкой клиента не складывается: действует бо́льшая
+          из двух. Скидка фиксируется при открытии стола и до конца
+          сеанса не меняется, даже если акция закончится.
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr><th>Название</th><th>Скидка</th><th>Дни</th><th>Время</th><th>Работает</th><th></th></tr>
+          </thead>
+          <tbody id="promo-rows"></tbody>
+        </table>
+        <p id="promos-empty" class="empty" hidden>Акций нет.</p>
+        <div class="settings-grid" style="margin-top:16px">
+          <label class="field">Название
+            <input id="promo-name" type="text" maxlength="60" placeholder="Например: Утро дешевле">
+          </label>
+          <label class="field">Скидка, %
+            <input id="promo-percent" type="number" min="1" max="100" value="20">
+          </label>
+          <label class="field">Дни недели
+            <div id="promo-days" class="days-picker"></div>
+          </label>
+          <label class="field">С
+            <input id="promo-start" type="time" value="10:00">
+          </label>
+          <label class="field">До
+            <input id="promo-end" type="time" value="18:00">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="add-promo-btn" class="primary">Добавить акцию</button>
+        </div>
+      </div>
+
+      <div class="settings-card" style="margin-top:24px">
+        <h3>Подарок постоянным гостям</h3>
+        <p class="hint">
+          «Каждый N-й час в подарок»: когда гость (выбранный клиент)
+          наиграет очередные N часов, при закрытии стола ему
+          автоматически выдаётся <b>чек на бесплатный час</b> по цене
+          текущего тарифа — с кодом, как обычный чек на остаток.
+          Деньги за подарок в кассу не приходили, поэтому в выручке он не
+          считается. 0 — подарков нет.
+        </p>
+        <div class="settings-grid">
+          <label class="field">Каждый N-й час в подарок
+            <input id="bonus-every" type="number" min="0" max="500" step="1">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="save-bonus-btn" class="primary">Сохранить</button>
+        </div>
+      </div>
+
+      <div class="settings-card" style="margin-top:24px">
+        <h3>Тарифы по столам</h3>
+        <p class="hint">
+          Можно ограничить, какие тарифы разрешены на конкретном столе —
+          например, свои тарифы для бильярда и для PlayStation. Ничего не
+          отмечено — доступны все активные тарифы (как раньше). У кассира
+          нет доступа к этой настройке — только выбор из уже разрешённого.
+        </p>
+        <div id="table-tariff-bindings" class="table-tariff-bindings"></div>
+      </div>
+    </section>
+    <section id="tab-clients" class="tab-panel" hidden>
+      <div class="settings-card">
+        <h3>Клиенты</h3>
+        <div class="settings-actions">
+          <input id="client-search" type="search" placeholder="Поиск по имени или телефону" class="search-input">
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Имя</th><th>Телефон</th><th>Скидка</th><th>Визитов</th>
+              <th>Средний расход</th><th>Всего времени</th><th>Последний визит</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="client-rows"></tbody>
+        </table>
+        <p id="clients-empty" class="empty" hidden>Клиентов пока нет.</p>
+      </div>
+      <div class="settings-card">
+        <h3>Чеки на остаток</h3>
+        <p class="hint">
+          Выдаются, когда гость не догулял оплаченное время по «чеку на
+          сумму»: деньги остаются в клубе, а по коду можно доиграть в любой
+          другой день («Открыть по чеку…» в меню стола).
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr><th>Код</th><th>Остаток</th><th>Клиент</th><th>Выдан</th><th>Кем</th><th></th></tr>
+          </thead>
+          <tbody id="voucher-rows"></tbody>
+        </table>
+        <p id="vouchers-empty" class="empty" hidden>Действующих чеков нет.</p>
+      </div>
+      <div class="settings-card">
+        <h3>Новый клиент</h3>
+        <div class="settings-grid">
+          <label class="field">Имя
+            <input id="new-client-name" type="text" maxlength="100">
+          </label>
+          <label class="field">Телефон
+            <input id="new-client-phone" type="tel" maxlength="30">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="add-client-btn" class="primary">Добавить клиента</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-cashdesk" class="tab-panel" hidden>
+      <div class="cashdesk-layout">
+        <div class="cashdesk-main">
+          <div class="settings-card">
+            <h3>Пополнение счёта клиента</h3>
+            <p class="hint">
+              Деньги остаются в клубе, клиенту выдаётся чек с кодом — им
+              можно расплатиться позже за любой стол («Открыть по чеку…»
+              в меню стола), как обычным чеком на остаток.
+            </p>
+            <div class="settings-grid">
+              <label class="field">Клиент
+                <input id="topup-client" type="text" list="clients-datalist" placeholder="Имя или телефон" autocomplete="off">
+              </label>
+              <label class="field">Сумма
+                <input id="topup-amount" type="number" min="0" step="0.01">
+              </label>
+              <label class="field">Способ оплаты
+                <select id="topup-method">
+                  <option value="cash">Наличные</option>
+                  <option value="card">Карта</option>
+                  <option value="transfer">Перевод</option>
+                </select>
+              </label>
+            </div>
+            <div class="settings-actions">
+              <button id="topup-btn" class="primary">Пополнить</button>
+              <span id="topup-status" class="hint status-line"></span>
+            </div>
+          </div>
+          <div class="settings-card" id="topup-client-card" hidden>
+            <h3 id="topup-client-title">Клиент</h3>
+            <p id="topup-client-balance" class="balance-line"></p>
+            <div id="topup-client-vouchers" class="voucher-list"></div>
+          </div>
+        </div>
+        <div class="cashdesk-side">
+          <div class="settings-card">
+            <h3>Последние операции</h3>
+            <div id="topup-feed" class="cash-moves"></div>
+            <p id="topup-feed-empty" class="empty" hidden>Пополнений пока не было.</p>
+          </div>
+          <div class="settings-card">
+            <h3>Столы: последние сеансы</h3>
+            <table class="data-table">
+              <thead><tr><th>Стол</th><th>Время</th><th>Клиент</th></tr></thead>
+              <tbody id="cashdesk-sessions-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-reports" class="tab-panel" hidden>
+      <div id="stat-tiles" class="stat-tiles"></div>
+
+      <div class="settings-card">
+        <h3>Зарплата <span class="muted-note">за 30 дней</span></h3>
+        <p class="hint">
+          Часы считаются по кассовым сменам: смена открыта — человек на
+          работе. Начисление = часы × ставка + выручка его смен × процент.
+          Ставка и процент задаются в карточке сотрудника
+          («Пользователи» → «Изменить»).
+        </p>
+        <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr><th>Сотрудник</th><th>Смен</th><th>Часов</th><th>Выручка, ₽</th><th>Ставка</th><th>%</th><th>За часы</th><th>За выручку</th><th>Начислено</th></tr>
+          </thead>
+          <tbody id="payroll-rows"></tbody>
+        </table>
+        </div>
+        <p id="payroll-empty" class="empty" hidden>Смен за период не было.</p>
+        <p id="payroll-total" class="order-total"></p>
+      </div>
+
+      <div class="settings-card">
+        <h3>Загруженность по дням недели <span class="muted-note">за 30 дней</span></h3>
+        <div id="weekday-chart" class="weekday-chart"></div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Выручка по дням</h3>
+        <div class="settings-actions">
+          <label class="field">Период
+            <select id="revenue-days">
+              <option value="7" selected>7 дней</option>
+              <option value="14">14 дней</option>
+              <option value="30">30 дней</option>
+              <option value="90">90 дней</option>
+            </select>
+          </label>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr><th>День</th><th>Сеансов</th><th>Наличные</th><th>Карта</th><th>Перевод</th><th>Итого, ₽</th><th style="width:26%"></th></tr>
+          </thead>
+          <tbody id="revenue-rows"></tbody>
+        </table>
+        <p id="revenue-empty" class="empty" hidden>Закрытых сеансов за период нет.</p>
+        <h3 style="margin-top:22px">Пиковые часы</h3>
+        <p class="hint">Число открытых сеансов по часам суток за выбранный период.</p>
+        <div id="hours-chart" class="hours-chart"></div>
+      </div>
+      <div class="settings-card">
+        <h3>Нагруженность столов</h3>
+        <div class="settings-actions">
+          <label class="field">Период
+            <select id="stats-days">
+              <option value="1">Сегодня</option>
+              <option value="7">7 дней</option>
+              <option value="30" selected>30 дней</option>
+              <option value="90">90 дней</option>
+            </select>
+          </label>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Стол</th><th>Сеансов</th><th>Занятость</th><th>Выручка, ₽</th><th style="width:30%">Доля выручки</th></tr>
+          </thead>
+          <tbody id="stats-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-shifts" class="tab-panel" hidden>
+      <div class="settings-card">
+        <h3>Сейчас на смене</h3>
+        <p class="hint">
+          X-отчёт — промежуточный: показывает, сколько должно быть в кассе
+          прямо сейчас, смену при этом не закрывает. Z-отчёт печатается
+          автоматически при закрытии смены — его сдают вместе с деньгами.
+        </p>
+        <div class="settings-actions">
+          <button id="x-report" class="mini">X-отчёт по моей смене</button>
+        </div>
+        <div id="live-shifts" class="live-shifts"></div>
+        <p id="live-shifts-empty" class="empty" hidden>Открытых смен нет.</p>
+      </div>
+      <div class="settings-card">
+        <h3>История смен</h3>
+        <div class="settings-actions shift-filters">
+          <label class="field">С даты
+            <input id="shift-filter-from" type="date">
+          </label>
+          <label class="field">По дату
+            <input id="shift-filter-to" type="date">
+          </label>
+          <label class="field">Кассир
+            <select id="shift-filter-user">
+              <option value="">Все</option>
+            </select>
+          </label>
+          <button id="shift-filter-reset" class="mini">Сбросить</button>
+        </div>
+        <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr><th>Кассир</th><th>Открыта</th><th>Закрыта</th><th>Сеансов</th><th>Выручка, ₽</th><th>Нал / Карта / Перевод</th><th>Внесено / Выдано</th><th>Касса: сдано / расчёт</th><th>Расхождение</th></tr>
+          </thead>
+          <tbody id="shift-rows"></tbody>
+        </table>
+        </div>
+        <p id="shifts-empty" class="empty" hidden>Смен пока не было.</p>
+      </div>
+    </section>
+
+    <section id="tab-users" class="tab-panel" hidden>
+      <div class="settings-card">
+        <h3>Сотрудники</h3>
+        <table class="data-table">
+          <thead>
+            <tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Статус</th><th>Действия</th></tr>
+          </thead>
+          <tbody id="user-rows"></tbody>
+        </table>
+      </div>
+      <div class="settings-card">
+        <h3>Новый сотрудник</h3>
+        <div class="settings-grid">
+          <label class="field">Логин
+            <input id="new-user-login" type="text" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="field">Имя
+            <input id="new-user-name" type="text" autocomplete="off">
+          </label>
+          <label class="field">Пароль
+            <input id="new-user-password" type="text" autocomplete="off">
+          </label>
+          <label class="field">Роль
+            <select id="new-user-role">
+              <option value="cashier">Кассир</option>
+              <option value="admin">Администратор</option>
+              <option value="manager" data-strict-owner hidden>Управляющий</option>
+              <option value="owner" data-owner-only hidden>Владелец</option>
+              <option value="developer" data-owner-only hidden>Разработчик</option>
+            </select>
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="add-user-btn" class="primary">Создать аккаунт</button>
+        </div>
+      </div>
+      <div class="settings-card" data-owner-only hidden>
+        <h3>Роли и права</h3>
+        <p class="hint">
+          Что разрешено каждой роли. Разработчик сюда не входит — у него
+          доступ всегда полный (иначе можно случайно заблокировать себе
+          вход). Изменения применяются сразу.
+        </p>
+        <div id="permissions-matrix" class="table-scroll"></div>
+      </div>
+    </section>
+
+    <section id="tab-settings" class="tab-panel" hidden>
+      <div class="settings-card">
+        <h3>Клуб</h3>
+        <div class="settings-grid">
+          <label class="field">Название клуба
+            <input id="set-club-name" type="text" maxlength="100">
+          </label>
+          <label class="field">Валюта
+            <select id="set-currency-select">
+              <option value="₽">Российский рубль ₽</option>
+              <option value="₸">Тенге ₸</option>
+              <option value="сом">Сом</option>
+              <option value="₴">Гривна ₴</option>
+              <option value="Br">Белорусский рубль Br</option>
+              <option value="сум">Сум</option>
+              <option value="$">Доллар $</option>
+              <option value="€">Евро €</option>
+              <option value="__custom__">Своя обозначение…</option>
+            </select>
+            <input id="set-currency-custom" type="text" maxlength="6" placeholder="Например: ₼" hidden>
+          </label>
+          <label class="field">Округление итога
+            <select id="set-rounding">
+              <option value="1">Без округления</option>
+              <option value="100">До рубля</option>
+              <option value="1000">До 10 ₽</option>
+            </select>
+          </label>
+          <label class="field">Минимальное время сеанса, минут
+            <input id="set-min-minutes" type="number" min="0" max="240" step="5">
+          </label>
+          <label class="field">Печать чека
+            <select id="set-receipt-width">
+              <option value="80">Термопринтер, лента 80 мм</option>
+              <option value="58">Термопринтер, лента 58 мм</option>
+              <option value="a4">Обычный принтер (лист A4)</option>
+            </select>
+          </label>
+          <label class="field">Предупредить за, минут до конца
+            <input id="set-warn-minutes" type="number" min="0" max="60" step="1">
+            <span class="hint">0 — не предупреждать</span>
+          </label>
+          <label class="field">Звук предупреждения
+            <select id="set-warn-sound">
+              <option value="1">Включён</option>
+              <option value="0">Выключен</option>
+            </select>
+          </label>
+          <label class="field">Часовой пояс клуба
+            <select id="set-tz">
+              <option value="120">Калининград, Киев (UTC+2)</option>
+              <option value="180">Москва, Минск (UTC+3)</option>
+              <option value="240">Самара, Баку, Тбилиси, Ереван (UTC+4)</option>
+              <option value="300">Ташкент, Ашхабад, Алматы, Астана, Душанбе, Екатеринбург (UTC+5)</option>
+              <option value="360">Бишкек, Омск (UTC+6)</option>
+              <option value="420">Красноярск (UTC+7)</option>
+              <option value="480">Иркутск (UTC+8)</option>
+              <option value="540">Якутск (UTC+9)</option>
+              <option value="600">Владивосток (UTC+10)</option>
+              <option value="660">Магадан (UTC+11)</option>
+              <option value="720">Камчатка (UTC+12)</option>
+            </select>
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="save-club-btn" class="primary">Сохранить настройки клуба</button>
+        </div>
+      </div>
+
+      <div class="settings-card" data-developer-only hidden>
+        <h3>Доступ с телефона, планшета и ноутбука</h3>
+        <p class="hint">
+          Сервер принимает подключения по всем адресам этого компьютера
+          сразу — ограничений в программе нет. Откройте на другом
+          устройстве любой из адресов ниже. Если их несколько, подходит
+          тот, у которого <b>первые три числа совпадают</b> с адресом
+          устройства (на телефоне: Wi-Fi → сведения о сети → IP-адрес).
+        </p>
+        <div id="network-list" class="network-list"></div>
+        <p class="hint">
+          Не открывается ни один адрес — почти всегда это брандмауэр
+          Windows: запустите <b>start-club.bat от имени администратора</b>
+          (правый клик по файлу → «Запуск от имени администратора»), он
+          добавит разрешение для порта 8000 во все сетевые профили.
+          Ещё проверьте, что устройства в одной сети: телефон не в мобильном
+          интернете, а ноутбук не в гостевой Wi-Fi сети.
+        </p>
+      </div>
+
+      <div class="settings-card" data-developer-only hidden>
+        <h3>Поддержка и обслуживание</h3>
+        <p class="hint">
+          Инструменты для разработчика. «Пакет диагностики» — один
+          текстовый файл, который можно отправить разработчику вместо
+          описания проблемы: версия, состояние базы, число записей,
+          настройки, последние события, запросы и весь журнал ошибок.
+          Пароли, ключи Tuya и токен Telegram в него не попадают.
+        </p>
+        <div class="settings-actions">
+          <a id="support-report" class="primary btn-link" href="/api/support/report"><i class="ic ic-doc"></i>Скачать пакет диагностики</a>
+          <button id="support-checkup" class="mini">Проверить данные</button>
+          <button id="support-requests" class="mini">Журнал запросов</button>
+          <button id="support-restart" class="mini">Перезапустить сервер</button>
+        </div>
+        <div class="settings-actions" data-developer-only hidden>
+          <button id="demo-fill" class="mini">Наполнить демо-данными</button>
+          <button id="demo-clear" class="mini danger">Стереть демо-данные</button>
+          <span id="demo-status" class="hint status-line"></span>
+        </div>
+        <p class="hint">
+          «Перезапустить сервер» нужен после обновления файлов программы:
+          окно сервера поднимется само (его держит <b>run-server.bat</b>),
+          страницу достаточно обновить через 5–10 секунд. Если сервер был
+          запущен как-то иначе — программа просто остановится, и её надо
+          будет запустить через <b>start-club.bat</b>.
+        </p>
+        <div class="sql-console" data-developer-only hidden>
+          <p class="hint">
+            Запрос к базе <b>только на чтение</b>: разрешён один SELECT,
+            не больше 200 строк. Изменить данные отсюда нельзя — база
+            открывается в режиме «только чтение». Каждый запрос пишется
+            в журнал.
+          </p>
+          <textarea id="sql-text" rows="3" spellcheck="false"
+            placeholder="SELECT id, total_cost_kopecks, payment_method FROM table_sessions ORDER BY id DESC LIMIT 20"></textarea>
+          <div class="settings-actions">
+            <button id="sql-run" class="mini">Выполнить</button>
+            <button id="sql-schema" class="mini">Таблицы и колонки</button>
+          </div>
+        </div>
+        <div id="support-result" class="support-result"></div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Напоминания о бронях в Telegram</h3>
+        <p class="hint">
+          Программа сама напишет <b>в чат клуба</b> за час (время
+          настраивается) до начала брони: какой стол, во сколько, кто
+          гость и его телефон. Дежурный звонит гостю сам — боту гость не
+          писал, поэтому напрямую ему Telegram не напишет.
+        </p>
+        <p class="hint">
+          Как настроить: в Telegram найдите <b>@BotFather</b> → команда
+          <b>/newbot</b> → получите токен. Затем создайте группу для
+          сотрудников, добавьте туда бота и напишите в неё любое
+          сообщение. Номер чата подскажет бот <b>@userinfobot</b>
+          (добавьте его в ту же группу) — это число, часто с минусом.
+          Нужен интернет на компьютере клуба.
+        </p>
+        <div class="settings-grid">
+          <label class="field">Токен бота
+            <input id="set-tg-token" type="text" autocomplete="off" placeholder="123456:AA...">
+          </label>
+          <label class="field">Номер чата
+            <input id="set-tg-chat" type="text" autocomplete="off" placeholder="-1001234567890">
+          </label>
+          <label class="field">Напомнить за, минут
+            <input id="set-tg-before" type="number" min="5" max="1440" step="5">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="save-tg-btn" class="primary">Сохранить</button>
+          <button id="test-tg-btn" class="mini">Проверить связь</button>
+          <span id="tg-status" class="hint status-line"></span>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Экран для гостей</h3>
+        <p class="hint">
+          Отдельная страница для телевизора в зале: свободные столы,
+          цены и действующая акция, крупным шрифтом и без кнопок. Вход
+          не нужен — денег клуба и имён клиентов на ней нет.
+          Откройте на телевизоре или втором мониторе адрес
+          <b><span id="board-url">/board</span></b> и нажмите F11
+          (полный экран). Страница обновляется сама каждые 10 секунд.
+        </p>
+        <div class="settings-actions">
+          <button id="open-board" class="mini">Открыть экран для гостей</button>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Логотип клуба</h3>
+        <p class="hint">
+          Показывается в шапке рядом с названием и на странице входа.
+          PNG, JPG, WebP или SVG, до 1 МБ. Логотип хранится в базе, поэтому
+          попадает в резервную копию.
+        </p>
+        <div class="logo-row">
+          <div id="logo-preview-box" class="logo-preview-box">
+            <img id="logo-preview" class="logo-preview" alt="" hidden>
+            <span id="logo-empty" class="hint">Логотип не задан</span>
+          </div>
+          <div class="settings-actions">
+            <label class="btn-file primary">
+              <input id="logo-file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden>
+              <i class="ic ic-download"></i>Выбрать файл
+            </label>
+            <button id="logo-remove" class="mini danger">Убрать логотип</button>
+          </div>
+        </div>
+        <!-- Логотипы бывают очень разной формы, поэтому масштаб выбирается
+             вручную: ползунок сразу меняет логотип в шапке. -->
+        <div class="logo-scale">
+          <label for="logo-height">Масштаб логотипа</label>
+          <input id="logo-height" type="range" min="16" max="96" step="2">
+          <span id="logo-height-value" class="hint"></span>
+          <button id="logo-height-save" class="mini">Сохранить масштаб</button>
+        </div>
+      </div>
+      <div class="settings-card" data-developer-only hidden>
+        <h3>Облачное подключение Tuya / MOES</h3>
+        <p class="hint">
+          Ключи берутся из облачного проекта на
+          <a href="https://iot.tuya.com" target="_blank" rel="noopener">iot.tuya.com</a>
+          (Cloud → ваш проект → Overview). Подробная инструкция — в README.
+        </p>
+        <div class="settings-grid">
+          <label class="field">Драйвер
+            <select id="set-driver">
+              <option value="mock">Выключено (без оборудования)</option>
+              <option value="tuya">Tuya / MOES</option>
+            </select>
+          </label>
+          <label class="field">Дата-центр
+            <select id="set-host">
+              <option value="https://openapi.tuyaeu.com">Европа (Central Europe)</option>
+              <option value="https://openapi.tuyaus.com">Америка (Western America)</option>
+              <option value="https://openapi.tuyain.com">Индия</option>
+              <option value="https://openapi.tuyacn.com">Китай</option>
+            </select>
+          </label>
+          <label class="field">Access ID
+            <input id="set-access-id" type="text" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="field">Access Secret
+            <input id="set-access-secret" type="password" autocomplete="off">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="save-settings" class="primary">Сохранить подключение</button>
+          <span id="settings-status" class="hint status-line"></span>
+        </div>
+      </div>
+
+      <div class="settings-card" data-developer-only hidden>
+        <h3>Привязка столов к реле</h3>
+        <p class="hint">
+          Выберите для каждого стола его реле — свет будет включаться при
+          открытии сеанса и гаснуть при закрытии. Кнопка «Тест» щёлкает реле
+          на 2 секунды. У разных столов могут быть разные устройства.
+        </p>
+        <p class="hint">
+          <b>Tuya / MOES</b> — через интернет и аккаунт Tuya (ключи выше);
+          устройство выбирается из списка. <b>Tasmota</b> (Sonoff и другие
+          с этой прошивкой) и <b>Shelly</b> — работают <b>в локальной сети,
+          без интернета</b>: нужен только адрес реле, например
+          <b>192.168.1.50</b> (смотрите его в приложении реле или в списке
+          устройств роутера). Поколение Shelly программа определяет сама.
+          <b>Своё устройство</b> — два любых адреса «включить» и
+          «выключить»: так подключается ESPHome, Home Assistant и
+          самодельные реле.
+        </p>
+        <div class="settings-actions">
+          <button id="load-devices" class="primary">Загрузить устройства из Tuya</button>
+          <button id="sync-lighting" class="mini" title="Включить свет над занятыми столами и погасить над свободными">Привести свет в порядок</button>
+          <span id="devices-status" class="hint"></span>
+        </div>
+        <p class="hint">
+          Свет над столом можно щёлкнуть и вручную: правый клик по столу
+          → «Включить свет» / «Выключить свет». После перезапуска
+          программы свет приводится в соответствие с занятыми столами
+          автоматически — кнопка рядом делает то же самое сейчас.
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr><th>Стол</th><th>Тип устройства</th><th>Настройка</th><th></th></tr>
+          </thead>
+          <tbody id="binding-rows"></tbody>
+        </table>
+      </div>
+
+      <div class="settings-card">
+        <h3>Данные</h3>
+        <p class="hint">
+          Экспорт истории сеансов для Excel и резервная копия базы данных
+          (все столы, тарифы, клиенты, история, сотрудники, настройки).
+        </p>
+        <div class="settings-actions">
+          <a id="export-csv" class="primary btn-link" href="/api/export/history.csv"><i class="ic ic-download"></i>История в CSV</a>
+          <a id="backup-db" class="primary btn-link" href="/api/backup"><i class="ic ic-database"></i>Экспорт базы (.db)</a>
+        </div>
+      </div>
+
+      <div class="settings-card" data-owner-only hidden>
+        <h3>Настройка клуба одним файлом</h3>
+        <p class="hint">
+          Переносит на другой компьютер только <b>как настроено</b>:
+          настройки клуба, тарифы и расписания, акции, расстановку зала,
+          права ролей и меню. История (сеансы, смены, клиенты, чеки) и
+          сотрудники не переносятся — в новом клубе свои люди и своя
+          история. Ключи Tuya и токен Telegram тоже остаются на месте:
+          они привязаны к конкретному компьютеру.
+        </p>
+        <div class="settings-actions">
+          <a id="config-export" class="primary btn-link" href="/api/config/export"><i class="ic ic-download"></i>Скачать настройку (.json)</a>
+          <input id="config-file" type="file" accept="application/json,.json" hidden>
+          <button id="config-import" class="mini">Загрузить настройку из файла</button>
+          <span id="config-status" class="hint status-line"></span>
+        </div>
+      </div>
+
+      <div class="settings-card" data-owner-only hidden>
+        <h3>Загрузка базы из копии</h3>
+        <p class="hint">
+          Выберите файл <b>.db</b>, полученный кнопкой «Экспорт базы» —
+          и данные из него заменят текущие. Загружать копию может только
+          владелец или разработчик. После загрузки все входы сбрасываются:
+          нужно будет войти заново — логином и паролем из копии.
+        </p>
+        <div class="settings-actions">
+          <label class="btn-file primary">
+            <input id="import-file" type="file" accept=".db,.sqlite,.sqlite3,application/octet-stream" hidden>
+            <i class="ic ic-database"></i>Выбрать файл копии
+          </label>
+          <span id="import-name" class="hint"></span>
+        </div>
+        <div class="settings-actions">
+          <button id="import-db" class="mini danger" disabled>Загрузить и заменить данные</button>
+          <span id="import-status" class="hint status-line"></span>
+        </div>
+      </div>
+
+      <div class="settings-card" data-developer-only hidden>
+        <h3>Диагностика</h3>
+        <p class="hint">
+          Состояние программы и базы. Если где-то выскочила «внутренняя
+          ошибка сервера» — её причина здесь, в списке последних ошибок
+          (полный журнал: файл <b>logs/errors.log</b> в папке программы).
+        </p>
+        <div class="settings-actions">
+          <button id="diag-refresh" class="mini">Обновить</button>
+          <button id="backup-now" class="mini" data-owner-only hidden>Сделать копию сейчас</button>
+          <span id="diag-summary" class="hint status-line"></span>
+        </div>
+        <p class="hint">
+          Копия базы делается автоматически раз в сутки в папку
+          <b>backups</b> рядом с программой; хранятся последние 14.
+          Раз в месяц копируйте эту папку на флешку или в облако — тогда
+          данные переживут даже поломку компьютера.
+        </p>
+        <div id="diag-info" class="diag-info"></div>
+        <div id="diag-errors" class="diag-errors"></div>
+      </div>
+    </section>
+  </main>
+  </div><!-- /.content -->
+  </div><!-- /.layout -->
+
+  <div id="context-menu" class="context-menu" hidden></div>
+  <div id="modal-overlay" class="modal-overlay" hidden>
+    <div id="modal" class="modal"></div>
+  </div>
+  <datalist id="clients-datalist"></datalist>
+  <!-- Полоски-предупреждения о конце оплаченного времени. -->
+  <div id="alerts" class="alerts"></div>
+  <!-- Всплывающие уведомления: справа наверху, стопкой. -->
+  <div id="toasts" class="toasts"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

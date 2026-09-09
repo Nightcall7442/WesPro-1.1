@@ -1,0 +1,5 @@
+node_modules
+billiards.db*
+.env
+*.log
+*.bat

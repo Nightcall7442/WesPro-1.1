@@ -1,0 +1,2014 @@
+/* Основная тема — светлая «сталь»: холодный светло-серый фон, белое
+   матовое «стекло» (backdrop-filter) и графитовый акцент. Тёмная тема —
+   парная к ней: тот же холодный графит, только наоборот (светлый акцент
+   на тёмном фоне). Цвет остаётся только там, где несёт смысл — статусы
+   столов. Переключатель темы — в шапке. */
+
+/* --- Тёмная тема (парная, включается переключателем) --- */
+:root {
+  /* Системным элементам (раскрытый список select, полосы прокрутки,
+     календарь в поле даты) браузер сам подберёт тёмные цвета. Без этого
+     список выпадал светлым поверх тёмного интерфейса. */
+  color-scheme: dark;
+  --bg: #14171b;
+  --text: #eef1f5;
+  --muted: #8b939f;
+  --blue: #f2f4f7;              /* акцент (имя переменной историческое) */
+  --blue-pressed: #d7dbe1;
+  --accent-rgb: 242, 244, 247;  /* тот же акцент RGB-триплетом для rgba() */
+  --accent-hi: #ffffff;         /* светлый край градиента */
+  --accent-lo: rgba(242, 244, 247, 0.35); /* тёмный край градиента */
+  --accent-fg: #14171b;         /* цвет текста на акцентных кнопках */
+  --green: #35996b;
+  --green-text: #57d197;
+  --red: #e0544b;
+  --red-pressed: #c0392f;
+  --orange-text: #c9963f;
+  --yellow: #d8ac3c;
+  --glass: rgba(226, 236, 248, 0.055);
+  --glass-strong: rgba(226, 236, 248, 0.085);
+  --glass-border: rgba(var(--ink), 0.10);
+  --hairline: rgba(var(--ink), 0.10);
+  --glass-edge: rgba(226, 236, 248, 0.20); /* блик на верхней кромке стекла */
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  /* «Чернила» — базовый цвет полупрозрачных подложек (RGB-триплет). */
+  --ink: 226, 236, 248;
+  --plan-bg: rgba(var(--ink), 0.03);
+  --tile-bg: rgba(226, 236, 248, 0.075);
+  --accent-ink: #f7f9fb;
+  --busy-ink: #f7f9fb;
+  --wall-bg: #454b55;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "Segoe UI", Roboto, sans-serif;
+}
+
+/* --- Светлая тема «сталь» — основная --- */
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ebedf1;
+  --text: #14181f;
+  --muted: #79808c;
+  --blue: #24282e;              /* графитовый акцент */
+  --blue-pressed: #14171c;
+  --accent-rgb: 36, 40, 46;
+  --accent-hi: #3a4048;
+  --accent-lo: rgba(36, 40, 46, 0.3);
+  --accent-fg: #ffffff;
+  --green: #1c7a4f;
+  --green-text: #0f7a4a;
+  --red: #cf4a41;
+  --red-pressed: #b03a32;
+  --orange-text: #8a6a1f;
+  --yellow: #8a6a1f;
+  --glass: rgba(255, 255, 255, 0.82);
+  --glass-strong: rgba(255, 255, 255, 0.94);
+  --glass-border: rgba(var(--ink), 0.10);
+  --hairline: rgba(var(--ink), 0.10);
+  --glass-edge: rgba(255, 255, 255, 0.95);
+  --shadow: 0 16px 40px rgba(20, 35, 60, 0.14);
+  --ink: 24, 28, 34;
+  --plan-bg: rgba(var(--ink), 0.03);
+  --tile-bg: #ffffff;
+  --accent-ink: #14181f;
+  --busy-ink: #14181f;
+  --wall-bg: #c6c9cf;
+}
+html[data-theme="light"] .hour-label,
+html[data-theme="light"] .tile-sub { font-weight: 600; }
+
+* { box-sizing: border-box; }
+
+/* Атрибут hidden всегда сильнее классов с display: flex/grid. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.2s, color 0.2s;
+}
+
+/* Тихая холодная подсветка по углам — вместо ярких неоновых пятен. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(1200px 720px at 18% -10%, rgba(var(--ink), 0.055), transparent 62%),
+    radial-gradient(900px 620px at 104% 112%, rgba(var(--ink), 0.035), transparent 66%);
+}
+html[data-theme="light"] body::before {
+  background:
+    radial-gradient(1100px 700px at 14% -12%, rgba(40, 50, 70, 0.10), transparent 60%),
+    radial-gradient(880px 620px at 106% 110%, rgba(30, 35, 45, 0.07), transparent 64%);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 26px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border-bottom: 0.5px solid var(--hairline);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.021em;
+  color: var(--accent-ink);
+}
+
+/* --- Боковое меню --- */
+
+.layout { display: flex; min-height: 100vh; align-items: stretch; }
+
+.sidebar {
+  width: 224px;
+  flex: none;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  background: var(--glass-strong);
+  border-right: 1px solid var(--hairline);
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  transition: width 0.15s ease;
+  z-index: 6;
+}
+.sidebar.collapsed { width: 58px; }
+
+.side-nav { display: flex; flex-direction: column; gap: 2px; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-align: left;
+  padding: 11px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, background 0.12s;
+}
+.nav-item:hover { color: var(--text); background: rgba(var(--ink), 0.05); }
+
+.nav-icon {
+  width: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  font-style: normal;
+}
+.nav-icon .ic { width: 19px; height: 19px; }
+.nav-toggle .nav-icon .ic { width: 20px; height: 20px; }
+.nav-label { overflow: hidden; text-overflow: ellipsis; }
+.sidebar.collapsed .nav-label { display: none; }
+
+.sidebar .tab.active {
+  color: var(--accent-ink);
+  background: rgba(var(--accent-rgb), 0.15);
+  box-shadow: inset 2px 0 0 var(--blue);
+}
+
+.nav-toggle { color: var(--muted); margin-bottom: 8px; }
+.nav-toggle .nav-icon { font-size: 1.2rem; font-weight: 700; }
+
+.content { flex: 1; min-width: 0; }
+
+main { padding: 28px 24px 48px; max-width: 1100px; margin: 0 auto; }
+
+.user-area { display: flex; align-items: center; gap: 10px; }
+
+.user-chip {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(var(--ink), 0.07);
+  border-radius: 999px;
+  padding: 6px 14px;
+}
+
+/* --- Контекстное меню столов --- */
+
+.context-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 230px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.93rem;
+  font-weight: 550;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.context-item:hover { background: rgba(var(--accent-rgb), 0.12); color: var(--blue); }
+
+/* Предоплата: истёкшее время */
+.timer.expired {
+  color: var(--red);
+  font-size: 1.35rem;
+  animation: blink 1.2s ease-in-out infinite;
+}
+@keyframes blink { 50% { opacity: 0.45; } }
+
+.user-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.load-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(var(--ink), 0.09);
+  overflow: hidden;
+}
+
+.load-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(var(--ink), 0.35), var(--blue));
+}
+
+/* --- Шапка «Залов»: переключатель вида, легенда, загрузка клуба --- */
+
+.dash-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.view-toggle { display: flex; gap: 6px; }
+.view-active {
+  background: rgba(var(--accent-rgb), 0.18) !important;
+  color: var(--accent-ink) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.35);
+}
+
+.legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.dot-free { background: rgba(var(--ink), 0.25); }
+.dot-busy { background: var(--blue); }
+.dot-prepaid { background: var(--yellow); }
+.dot-expired { background: var(--red); }
+.dot-booked { background: var(--orange-text); }
+
+.club-load {
+  margin-left: auto;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* --- Карта клуба: план с координатами --- */
+
+.map-wrap { display: flex; gap: 14px; align-items: flex-start; }
+
+.plan-scroll {
+  flex: 1;
+  overflow: auto;
+  max-height: 72vh;
+  border-radius: 12px;
+}
+
+.plan {
+  position: relative;
+  background-color: var(--plan-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+}
+
+.plan.editing {
+  background-image:
+    linear-gradient(rgba(var(--ink), 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ink), 0.045) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.plan.editing[data-tool="wall"],
+.plan.editing[data-tool="door"],
+.plan.editing[data-tool="sofa"],
+.plan.editing[data-tool="armchair"],
+.plan.editing[data-tool="deco_table"],
+.plan.editing[data-tool="tv"] { cursor: crosshair; }
+.plan.editing[data-tool="erase"] { cursor: not-allowed; }
+
+.plan-el { position: absolute; border-radius: 3px; }
+.plan-el.wall {
+  background: var(--wall-bg);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.06);
+}
+.plan-el.door {
+  background: rgba(var(--ink), 0.16);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.34);
+}
+.plan-el.sofa,
+.plan-el.armchair,
+.plan-el.deco_table,
+.plan-el.tv {
+  background: rgba(var(--ink), 0.07);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.2);
+  color: rgba(var(--ink), 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  pointer-events: auto;
+}
+.plan-el.sofa::before,
+.plan-el.armchair::before,
+.plan-el.deco_table::before,
+.plan-el.tv::before {
+  content: "";
+  width: 72%;
+  height: 72%;
+  max-width: 26px;
+  max-height: 26px;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+.plan-el.tv {
+  background: rgba(var(--ink), 0.09);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.22);
+}
+.plan-el.preview { opacity: 0.6; outline: 2px dashed rgba(var(--accent-rgb), 0.6); }
+.plan.editing[data-tool="erase"] .plan-el:hover { outline: 2px solid var(--red); }
+
+.pal-sep {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(var(--ink), 0.1);
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.tile {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--tile-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s;
+  overflow: hidden;
+}
+.tile:hover { border-color: rgba(var(--accent-rgb), 0.5); }
+
+.tile.editable { cursor: grab; }
+.tile.dragging { cursor: grabbing; opacity: 0.9; z-index: 5; }
+.tile.dragging,
+.tile.resizing {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.35), 0 10px 26px rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+
+/* Те же перетаскивание/растягивание — для стен, дверей и мебели плана. */
+.plan-el.editable { cursor: grab; }
+.plan-el.dragging { cursor: grabbing; opacity: 0.85; z-index: 5; }
+.plan-el.dragging,
+.plan-el.resizing {
+  outline: 2px solid var(--blue);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+
+.rsz {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px 0 8px 0;
+  background: var(--blue);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.8);
+  cursor: nwse-resize;
+}
+
+.size-tip {
+  position: absolute;
+  z-index: 6;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  color: var(--accent-ink);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Палитра редактора зала */
+.palette-panel {
+  width: 240px;
+  flex: none;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.palette-panel h3 {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pal-tool {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 9px 10px;
+  border-radius: 9px;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.pal-tool:hover { background: rgba(var(--accent-rgb), 0.1); }
+.pal-tool.sel {
+  background: rgba(var(--accent-rgb), 0.16);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.4);
+  color: var(--accent-ink);
+}
+.grid-set {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 10px;
+}
+.grid-set input {
+  width: 52px;
+  background: rgba(var(--ink), 0.06);
+  border: 0.5px solid var(--hairline);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px;
+  text-align: center;
+  font-family: inherit;
+}
+
+.kind-badge {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.72;
+  white-space: nowrap;
+}
+.kind-badge .ic { width: 12px; height: 12px; vertical-align: 0; }
+
+.tile-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-sub {
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-height: 0.9rem;
+  margin-top: 2px;
+}
+
+.tile-bar {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 5px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(var(--ink), 0.18);
+}
+.tile.busy .tile-bar { background: var(--blue); box-shadow: 0 0 8px var(--blue); }
+.tile.busy .tile-name { color: var(--busy-ink); }
+.tile.prepaid .tile-bar { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+.tile.prepaid .tile-sub { color: var(--yellow); }
+.tile.expired .tile-bar { background: var(--red); box-shadow: 0 0 8px var(--red); }
+.tile.expired .tile-sub { color: var(--red); font-weight: 700; }
+.tile.expired { animation: blink 1.2s ease-in-out infinite; }
+.tile.booked { border-color: rgba(201, 132, 58, 0.6); }
+.tile.booked .tile-sub { color: var(--orange-text); }
+
+.tile.selected {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.35), 0 0 14px rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+.selection-chip {
+  color: var(--accent-ink) !important;
+  background: rgba(var(--accent-rgb), 0.18) !important;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 18px;
+}
+
+.card {
+  background: var(--glass);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  border-top: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card-head { display: flex; align-items: center; justify-content: space-between; }
+
+.card-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.14rem;
+  font-weight: 680;
+  letter-spacing: -0.017em;
+}
+
+.badge {
+  font-size: 0.72rem;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.badge.free { background: rgba(58, 148, 104, 0.18); color: var(--green-text); }
+.badge.busy { background: rgba(201, 132, 58, 0.18); color: var(--orange-text); }
+
+.light { font-size: 0.86rem; color: var(--muted); }
+
+.timer {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.cost {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-meta { font-size: 0.84rem; color: var(--muted); line-height: 1.45; }
+
+.card select,
+.inline-form input,
+.inline-form select {
+  appearance: none;
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  padding: 11px 12px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  width: 100%;
+}
+
+.card select,
+.field select,
+.inline-form select,
+.settings-card td select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238892a6' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.card select:focus,
+.inline-form input:focus,
+.inline-form select:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3.5px rgba(var(--accent-rgb), 0.18);
+}
+
+button.action {
+  border: 0;
+  border-radius: 13px;
+  padding: 12px;
+  font-size: 0.98rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  color: #fff;
+  width: 100%;
+  transition: background 0.15s, transform 0.06s;
+}
+button.action:active { transform: scale(0.98); }
+button.action.open {
+  background: var(--blue);
+  color: var(--accent-fg);
+  box-shadow: 0 5px 16px rgba(var(--accent-rgb), 0.35);
+}
+button.action.open:hover { filter: brightness(1.08); }
+button.action.open:disabled {
+  background: rgba(var(--ink), 0.14);
+  color: var(--muted);
+  box-shadow: none;
+  cursor: default;
+}
+button.action.close {
+  background: var(--red);
+  box-shadow: 0 5px 16px rgba(200, 72, 63, 0.35);
+}
+button.action.close:hover { background: var(--red-pressed); }
+
+.inline-form { margin-top: 24px; display: flex; gap: 10px; flex-wrap: wrap; }
+.inline-form input { flex: 1 1 220px; width: auto; background: var(--glass); }
+/* Список рядом с полем — ровно того же вида, иначе на тёмной теме он
+   выделялся светлым пятном. */
+.inline-form select { width: auto; flex: 0 0 auto; background: var(--glass); }
+
+.inline-form button {
+  border: 0;
+  border-radius: 12px;
+  padding: 11px 20px;
+  background: var(--blue);
+  color: var(--accent-fg);
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 5px 16px rgba(var(--accent-rgb), 0.3);
+  transition: filter 0.15s, transform 0.06s;
+}
+.inline-form button:hover { filter: brightness(1.08); }
+.inline-form button:active { transform: scale(0.98); }
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--glass);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.92rem;
+  border-bottom: 0.5px solid var(--hairline);
+}
+
+.data-table th {
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: rgba(var(--ink), 0.04);
+}
+
+.data-table tr:last-child td { border-bottom: 0; }
+
+.empty { color: var(--muted); margin-top: 16px; }
+
+/* --- Вкладка «Настройки» --- */
+
+.settings-card {
+  background: var(--glass);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  border-top: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 20px 22px;
+  margin-bottom: 20px;
+}
+
+.settings-card h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 1.07rem;
+  font-weight: 680;
+  letter-spacing: -0.015em;
+}
+.settings-card .data-table { box-shadow: none; margin-top: 14px; }
+
+.hint { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 4px 0 0; }
+.hint a { color: var(--blue); text-decoration: none; }
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.field input,
+.field select,
+.settings-card td select {
+  appearance: none;
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.94rem;
+  font-family: inherit;
+  font-weight: 400;
+  width: 100%;
+}
+
+.field input:focus,
+.field select:focus,
+.settings-card td select:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3.5px rgba(var(--accent-rgb), 0.18);
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+button.primary {
+  border: 0;
+  border-radius: 12px;
+  padding: 11px 20px;
+  background: var(--blue);
+  color: var(--accent-fg);
+  font-weight: 700;
+  font-size: 0.94rem;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 5px 16px rgba(var(--accent-rgb), 0.3);
+  transition: filter 0.15s, transform 0.06s;
+}
+button.primary:hover { filter: brightness(1.08); }
+button.primary:active { transform: scale(0.98); }
+
+button.mini {
+  border: 0.5px solid var(--hairline);
+  border-radius: 10px;
+  padding: 7px 16px;
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+  font-weight: 650;
+  font-size: 0.86rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+button.mini:hover { background: rgba(var(--accent-rgb), 0.12); }
+button.mini:disabled { color: var(--muted); cursor: default; }
+button.mini.danger { color: var(--red); }
+button.mini.danger:hover { background: rgba(200, 72, 63, 0.14); }
+
+.tariff-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.table-tariff-bindings { display: flex; flex-direction: column; gap: 10px; }
+.table-tariff-row {
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.table-tariff-name { font-weight: 700; margin-bottom: 6px; }
+.table-tariff-boxes { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.table-tariff-box { display: inline-flex; align-items: center; gap: 5px; font-size: 0.88rem; cursor: pointer; }
+
+/* --- Модальные окна --- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 8, 6, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 20px;
+}
+
+.modal {
+  width: 100%;
+  max-width: 440px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--glass-strong);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  padding: 20px 22px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.modal-head h3 { margin: 0; font-size: 1.05rem; }
+
+/* --- Чек при закрытии --- */
+
+.check-lines { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.check-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+.check-line.strong {
+  font-weight: 700;
+  font-size: 1.1rem;
+  border-top: 0.5px solid var(--hairline);
+  padding-top: 10px;
+  color: var(--blue);
+}
+
+.pay-buttons { display: flex; gap: 10px; margin-top: 14px; }
+.pay-buttons .primary { flex: 1; }
+
+/* --- Бар в модальном окне --- */
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.menu-item-btn {
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  padding: 10px 8px;
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.menu-item-btn:hover { background: rgba(var(--accent-rgb), 0.12); color: var(--blue); }
+
+.order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 0.5px solid var(--hairline);
+  font-size: 0.92rem;
+}
+.order-total { font-weight: 700; margin: 10px 0 0; }
+
+/* --- Кнопка бара на карточке --- */
+
+button.action.bar {
+  background: rgba(var(--ink), 0.07);
+  color: var(--text);
+  box-shadow: none;
+  border: 0.5px solid var(--hairline);
+}
+button.action.bar:hover { background: rgba(var(--accent-rgb), 0.12); color: var(--blue); }
+
+/* --- Брони --- */
+
+.booking-note {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(var(--ink), 0.06);
+  border-radius: 10px;
+  padding: 7px 10px;
+}
+.booking-note.soon {
+  color: var(--orange-text);
+  background: rgba(201, 132, 58, 0.16);
+}
+
+/* --- Отчёты: пиковые часы --- */
+
+.hours-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 130px;
+  margin-top: 10px;
+}
+.hour-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+}
+.hour-bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--blue), rgba(var(--ink), 0.3));
+}
+.hour-label { font-size: 0.66rem; color: var(--muted); height: 12px; }
+
+.ok-text { color: var(--green-text); font-weight: 600; }
+.bad-text { color: var(--red); font-weight: 700; }
+
+.cash-input,
+.search-input {
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  padding: 11px 12px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  width: 100%;
+}
+.search-input { max-width: 340px; }
+.cash-input:focus,
+.search-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3.5px rgba(var(--accent-rgb), 0.18);
+}
+
+.table-scroll { overflow-x: auto; }
+
+/* --- Единое окно открытия стола --- */
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.92rem;
+  margin: 14px 0;
+  cursor: pointer;
+}
+.switch-row input { width: 17px; height: 17px; accent-color: var(--blue); cursor: pointer; }
+
+.minute-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 14px; }
+.minute-chip {
+  border: 0.5px solid var(--hairline);
+  border-radius: 9px;
+  padding: 7px 12px;
+  background: rgba(var(--ink), 0.07);
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 0.84rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.minute-chip-active {
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--blue);
+  border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+/* --- Дашборд статистики --- */
+
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.stat-tile {
+  background: var(--glass);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+}
+
+.stat-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.stat-sub { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+
+/* --- Мониторинг смен --- */
+
+.live-shifts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.live-shift-card {
+  background: var(--glass);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--green, #3a9468);
+}
+
+.live-shift-name { font-weight: 800; font-size: 1.02rem; }
+.live-shift-meta { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
+.live-shift-stats { font-size: 0.86rem; margin-top: 8px; font-weight: 600; }
+
+.muted-note { font-size: 0.76rem; color: var(--muted); font-weight: 500; }
+
+.weekday-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 150px;
+  margin-top: 12px;
+}
+.weekday-chart .hour-col { flex: 1; }
+.hour-count { font-size: 0.7rem; color: var(--muted); font-weight: 700; }
+
+a.btn-link {
+  text-decoration: none;
+  display: inline-block;
+  border-radius: 12px;
+  padding: 11px 20px;
+  background: var(--blue);
+  color: var(--accent-fg);
+  font-weight: 700;
+  font-size: 0.94rem;
+  box-shadow: 0 5px 16px rgba(var(--accent-rgb), 0.3);
+  transition: filter 0.15s;
+}
+a.btn-link:hover { filter: brightness(1.08); }
+
+/* --- Дни недели в расписании тарифов --- */
+
+.days-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.day-chip {
+  display: inline-flex;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+.day-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.day-chip span {
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: rgba(var(--ink), 0.07);
+  color: var(--muted);
+  border: 0.5px solid transparent;
+}
+.day-chip input:checked + span {
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--blue);
+  border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+/* Инструменты поддержки: доктор данных и журнал запросов. */
+.support-result { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.support-issue {
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--ink), 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.support-issue-title { font-weight: 600; color: var(--orange-text); }
+.support-issue-detail {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  word-break: break-word;
+}
+.support-manual { font-size: 0.82rem; color: var(--muted); font-style: italic; }
+.support-log { max-height: 420px; overflow: auto; }
+
+/* Привязка столов к реле: поля меняются под выбранный тип устройства. */
+.binding-fields { white-space: normal; }
+.binding-fields > span { display: inline-flex; gap: 10px; flex-wrap: wrap; }
+.binding-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.binding-field input { width: auto; }
+.binding-field input[type="number"] { width: 64px; }
+
+/* Запрос к базе только на чтение (для разработчика). */
+.sql-console { margin-top: 12px; }
+.sql-console textarea {
+  width: 100%;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.88rem;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--ink), 0.05);
+  color: var(--text);
+  resize: vertical;
+}
+
+/* Просмотр чека и отчётов смены внутри страницы. */
+.receipt-frame {
+  width: 100%;
+  height: 58vh;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+/* Быстрый поиск и подсказка по горячим клавишам. */
+.quick-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.quick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 11px;
+  border: 1px solid transparent;
+  background: rgba(var(--ink), 0.05);
+  color: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.quick-item:hover { background: rgba(var(--ink), 0.09); }
+.quick-item.active {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+.quick-note {
+  margin-left: auto;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.shortcuts { display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
+.shortcut-row { display: flex; align-items: center; gap: 12px; font-size: 0.95rem; }
+.shortcut-row kbd {
+  min-width: 120px;
+  text-align: center;
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 4px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--ink), 0.06);
+}
+
+/* Движение денег по кассе в окне «Касса». */
+.cash-moves {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.cash-move {
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  padding: 5px 9px;
+  border-radius: 9px;
+  background: rgba(var(--ink), 0.05);
+}
+.cash-move.out { color: var(--red); }
+.cash-move.in { color: var(--green-text); }
+
+/* Сводка по смене в окне её закрытия — цифры видны ДО ввода суммы. */
+.shift-summary {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  margin: 6px 0 10px;
+  background: rgba(var(--ink), 0.05);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.shift-summary td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.shift-summary tr:last-child td { border-bottom: none; }
+.shift-summary td.r { text-align: right; }
+
+/* Предупреждения о конце оплаченного времени: полоски вверху экрана. */
+.alerts {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 30;
+  max-width: min(92vw, 520px);
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px 11px 18px;
+  border-radius: 14px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: var(--glass-strong);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+}
+.alert.warn { color: var(--orange-text); border-color: rgba(201, 132, 58, 0.55); }
+.alert.over { color: var(--red); border-color: rgba(191, 74, 74, 0.55); }
+
+.alert-close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.65;
+  padding: 0 4px;
+}
+.alert-close:hover { opacity: 1; }
+
+/* Последние минуты оплаченного времени. */
+.tile.ending .tile-bar { background: var(--orange-text); box-shadow: 0 0 8px var(--orange-text); }
+.tile.ending .tile-sub { color: var(--orange-text); font-weight: 700; }
+.tile.ending { border-color: rgba(201, 132, 58, 0.6); }
+
+/* Уведомления: справа наверху, стопкой, новые снизу. */
+.toasts {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 40;
+  max-width: min(92vw, 380px);
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 14px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  animation: toast-in 0.18s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.toast.ok { border-color: rgba(74, 158, 106, 0.45); }
+.toast.bad { border-color: rgba(191, 74, 74, 0.5); }
+.toast.ok .toast-icon { color: var(--green-text); }
+.toast.bad .toast-icon { color: var(--red); }
+.toast-icon { flex: none; margin-top: 2px; }
+
+.toast-text { flex: 1; min-width: 0; }
+.toast-title { font-size: 0.94rem; font-weight: 600; color: var(--text); }
+.toast.bad .toast-title { color: var(--red); }
+.toast-why {
+  margin-top: 3px;
+  font-size: 0.86rem;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.toast-close {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.toast-close:hover { color: var(--text); }
+
+
+/* ================= Иконки =================
+   Монохромные тонкие иконки: SVG-маска, цвет берётся из currentColor,
+   поэтому они автоматически подходят и тёмной, и светлой теме.
+   Генератор — scratchpad/gen_icons.py. */
+
+.ic {
+  display: inline-block;
+  width: 1.08em;
+  height: 1.08em;
+  flex: none;
+  background-color: currentColor;
+  vertical-align: -0.18em;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+}
+.ic-ball { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%278.4%27%2F%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%272.9%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%278.4%27%2F%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%272.9%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-people { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%279.2%27%20cy%3D%278.4%27%20r%3D%273.3%27%2F%3E%3Cpath%20d%3D%27M2.9%2019.7c.7-3.2%203.2-5.1%206.3-5.1s5.6%201.9%206.3%205.1%27%2F%3E%3Cpath%20d%3D%27M16.4%206.2a3.1%203.1%200%200%201%200%206%27%2F%3E%3Cpath%20d%3D%27M18.1%2014.9c1.9.7%203.1%202.3%203.5%204.5%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%279.2%27%20cy%3D%278.4%27%20r%3D%273.3%27%2F%3E%3Cpath%20d%3D%27M2.9%2019.7c.7-3.2%203.2-5.1%206.3-5.1s5.6%201.9%206.3%205.1%27%2F%3E%3Cpath%20d%3D%27M16.4%206.2a3.1%203.1%200%200%201%200%206%27%2F%3E%3Cpath%20d%3D%27M18.1%2014.9c1.9.7%203.1%202.3%203.5%204.5%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-clock { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%278.4%27%2F%3E%3Cpath%20d%3D%27M12%207.3V12l3.4%202%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%278.4%27%2F%3E%3Cpath%20d%3D%27M12%207.3V12l3.4%202%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-list { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.2%207h15.6M4.2%2012h15.6M4.2%2017h10.4%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.2%207h15.6M4.2%2012h15.6M4.2%2017h10.4%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-chart { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%204v16h16%27%2F%3E%3Cpath%20d%3D%27M8.6%2020v-5.6M13%2020v-9.4M17.4%2020v-3.4%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%204v16h16%27%2F%3E%3Cpath%20d%3D%27M8.6%2020v-5.6M13%2020v-9.4M17.4%2020v-3.4%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-calendar { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%273.3%27%20y%3D%275.2%27%20width%3D%2717.4%27%20height%3D%2715.3%27%20rx%3D%272.6%27%2F%3E%3Cpath%20d%3D%27M3.3%2010.1h17.4M8.6%203.4v3.6M15.4%203.4v3.6%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%273.3%27%20y%3D%275.2%27%20width%3D%2717.4%27%20height%3D%2715.3%27%20rx%3D%272.6%27%2F%3E%3Cpath%20d%3D%27M3.3%2010.1h17.4M8.6%203.4v3.6M15.4%203.4v3.6%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-tag { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M11.6%203.6H6.4A2.8%202.8%200%200%200%203.6%206.4v5.2c0%20.7.3%201.5.8%202l6%206a2.8%202.8%200%200%200%204%200l5.2-5.2a2.8%202.8%200%200%200%200-4l-6-6c-.5-.5-1.3-.8-2-.8z%27%2F%3E%3Ccircle%20cx%3D%278.3%27%20cy%3D%278.3%27%20r%3D%271.5%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M11.6%203.6H6.4A2.8%202.8%200%200%200%203.6%206.4v5.2c0%20.7.3%201.5.8%202l6%206a2.8%202.8%200%200%200%204%200l5.2-5.2a2.8%202.8%200%200%200%200-4l-6-6c-.5-.5-1.3-.8-2-.8z%27%2F%3E%3Ccircle%20cx%3D%278.3%27%20cy%3D%278.3%27%20r%3D%271.5%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-person { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%278%27%20r%3D%273.6%27%2F%3E%3Cpath%20d%3D%27M4.9%2020.1c.8-3.6%203.6-5.6%207.1-5.6s6.3%202%207.1%205.6%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%278%27%20r%3D%273.6%27%2F%3E%3Cpath%20d%3D%27M4.9%2020.1c.8-3.6%203.6-5.6%207.1-5.6s6.3%202%207.1%205.6%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-sliders { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%208.2h9.4M18.6%208.2H20M4%2015.8h3.4M12.6%2015.8H20%27%2F%3E%3Ccircle%20cx%3D%2716%27%20cy%3D%278.2%27%20r%3D%272.6%27%2F%3E%3Ccircle%20cx%3D%2710%27%20cy%3D%2715.8%27%20r%3D%272.6%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%208.2h9.4M18.6%208.2H20M4%2015.8h3.4M12.6%2015.8H20%27%2F%3E%3Ccircle%20cx%3D%2716%27%20cy%3D%278.2%27%20r%3D%272.6%27%2F%3E%3Ccircle%20cx%3D%2710%27%20cy%3D%2715.8%27%20r%3D%272.6%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-theme { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%278.4%27%2F%3E%3Cpath%20d%3D%27M12%203.6a8.4%208.4%200%200%200%200%2016.8z%27%20fill%3D%27%23000%27%20stroke%3D%27none%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%278.4%27%2F%3E%3Cpath%20d%3D%27M12%203.6a8.4%208.4%200%200%200%200%2016.8z%27%20fill%3D%27%23000%27%20stroke%3D%27none%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-play { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M8.8%205.8l9%206.2-9%206.2z%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M8.8%205.8l9%206.2-9%206.2z%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-timer { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2713.6%27%20r%3D%277.4%27%2F%3E%3Cpath%20d%3D%27M12%209.8v3.8l2.6%201.6%27%2F%3E%3Cpath%20d%3D%27M9.6%202.8h4.8%27%2F%3E%3Cpath%20d%3D%27M12%202.8v3.4%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2713.6%27%20r%3D%277.4%27%2F%3E%3Cpath%20d%3D%27M12%209.8v3.8l2.6%201.6%27%2F%3E%3Cpath%20d%3D%27M9.6%202.8h4.8%27%2F%3E%3Cpath%20d%3D%27M12%202.8v3.4%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-card { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.6%27%20y%3D%275.4%27%20width%3D%2718.8%27%20height%3D%2713.2%27%20rx%3D%272.6%27%2F%3E%3Cpath%20d%3D%27M2.6%2010.2h18.8M6.4%2014.9h4.2%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.6%27%20y%3D%275.4%27%20width%3D%2718.8%27%20height%3D%2713.2%27%20rx%3D%272.6%27%2F%3E%3Cpath%20d%3D%27M2.6%2010.2h18.8M6.4%2014.9h4.2%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-glass { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.4%204.8h15.2L12%2013.4%204.4%204.8z%27%2F%3E%3Cpath%20d%3D%27M12%2013.4v6.1M8.6%2019.5h6.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.4%204.8h15.2L12%2013.4%204.4%204.8z%27%2F%3E%3Cpath%20d%3D%27M12%2013.4v6.1M8.6%2019.5h6.8%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-trash { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.6%207.2h14.8%27%2F%3E%3Cpath%20d%3D%27M9.5%207.2V5.5c0-.8.6-1.4%201.4-1.4h2.2c.8%200%201.4.6%201.4%201.4v1.7%27%2F%3E%3Cpath%20d%3D%27M6.6%207.2l.8%2011.5c.1%201.1.9%201.9%202%201.9h5.2c1.1%200%201.9-.8%202-1.9l.8-11.5%27%2F%3E%3Cpath%20d%3D%27M10.4%2011.2v5.6M13.6%2011.2v5.6%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.6%207.2h14.8%27%2F%3E%3Cpath%20d%3D%27M9.5%207.2V5.5c0-.8.6-1.4%201.4-1.4h2.2c.8%200%201.4.6%201.4%201.4v1.7%27%2F%3E%3Cpath%20d%3D%27M6.6%207.2l.8%2011.5c.1%201.1.9%201.9%202%201.9h5.2c1.1%200%201.9-.8%202-1.9l.8-11.5%27%2F%3E%3Cpath%20d%3D%27M10.4%2011.2v5.6M13.6%2011.2v5.6%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-close { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6.4%206.4l11.2%2011.2M17.6%206.4L6.4%2017.6%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6.4%206.4l11.2%2011.2M17.6%206.4L6.4%2017.6%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-gift { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%273.4%27%20y%3D%279%27%20width%3D%2717.2%27%20height%3D%2711.4%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M3.4%2013.6h17.2M12%209v11.4%27%2F%3E%3Cpath%20d%3D%27M12%209C10.7%205.6%209%204.5%207.7%205.1%206.4%205.7%206.8%207.9%209.1%209M12%209c1.3-3.4%203-4.5%204.3-3.9%201.3.6.9%202.8-1.4%203.9%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%273.4%27%20y%3D%279%27%20width%3D%2717.2%27%20height%3D%2711.4%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M3.4%2013.6h17.2M12%209v11.4%27%2F%3E%3Cpath%20d%3D%27M12%209C10.7%205.6%209%204.5%207.7%205.1%206.4%205.7%206.8%207.9%209.1%209M12%209c1.3-3.4%203-4.5%204.3-3.9%201.3.6.9%202.8-1.4%203.9%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-bulb { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M12%203.4a5.9%205.9%200%200%200-3.5%2010.7v2.6h7V14A5.9%205.9%200%200%200%2012%203.4z%27%2F%3E%3Cpath%20d%3D%27M9.6%2019.2h4.8M10.4%2021.4h3.2%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M12%203.4a5.9%205.9%200%200%200-3.5%2010.7v2.6h7V14A5.9%205.9%200%200%200%2012%203.4z%27%2F%3E%3Cpath%20d%3D%27M9.6%2019.2h4.8M10.4%2021.4h3.2%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-download { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M12%203.8v11.3M7.5%2010.8l4.5%204.5%204.5-4.5%27%2F%3E%3Cpath%20d%3D%27M4.4%2020.2h15.2%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M12%203.8v11.3M7.5%2010.8l4.5%204.5%204.5-4.5%27%2F%3E%3Cpath%20d%3D%27M4.4%2020.2h15.2%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-database { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cellipse%20cx%3D%2712%27%20cy%3D%276.2%27%20rx%3D%277.4%27%20ry%3D%272.8%27%2F%3E%3Cpath%20d%3D%27M4.6%206.2v11.6c0%201.5%203.3%202.8%207.4%202.8s7.4-1.3%207.4-2.8V6.2%27%2F%3E%3Cpath%20d%3D%27M4.6%2012c0%201.5%203.3%202.8%207.4%202.8s7.4-1.3%207.4-2.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cellipse%20cx%3D%2712%27%20cy%3D%276.2%27%20rx%3D%277.4%27%20ry%3D%272.8%27%2F%3E%3Cpath%20d%3D%27M4.6%206.2v11.6c0%201.5%203.3%202.8%207.4%202.8s7.4-1.3%207.4-2.8V6.2%27%2F%3E%3Cpath%20d%3D%27M4.6%2012c0%201.5%203.3%202.8%207.4%202.8s7.4-1.3%207.4-2.8%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-move { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M12%203.4v17.2M3.4%2012h17.2%27%2F%3E%3Cpath%20d%3D%27M9.6%205.8L12%203.4l2.4%202.4M9.6%2018.2L12%2020.6l2.4-2.4M5.8%209.6L3.4%2012l2.4%202.4M18.2%209.6L20.6%2012l-2.4%202.4%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M12%203.4v17.2M3.4%2012h17.2%27%2F%3E%3Cpath%20d%3D%27M9.6%205.8L12%203.4l2.4%202.4M9.6%2018.2L12%2020.6l2.4-2.4M5.8%209.6L3.4%2012l2.4%202.4M18.2%209.6L20.6%2012l-2.4%202.4%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-wall { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.8%27%20y%3D%279.4%27%20width%3D%2718.4%27%20height%3D%275.2%27%20rx%3D%271.2%27%2F%3E%3Cpath%20d%3D%27M9%209.4v5.2M15%209.4v5.2%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.8%27%20y%3D%279.4%27%20width%3D%2718.4%27%20height%3D%275.2%27%20rx%3D%271.2%27%2F%3E%3Cpath%20d%3D%27M9%209.4v5.2M15%209.4v5.2%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-door { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M5.8%2020.4V5c0-.8.6-1.4%201.4-1.4h9.6c.8%200%201.4.6%201.4%201.4v15.4%27%2F%3E%3Cpath%20d%3D%27M3.6%2020.4h16.8%27%2F%3E%3Ccircle%20cx%3D%2715.2%27%20cy%3D%2712.4%27%20r%3D%271%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M5.8%2020.4V5c0-.8.6-1.4%201.4-1.4h9.6c.8%200%201.4.6%201.4%201.4v15.4%27%2F%3E%3Cpath%20d%3D%27M3.6%2020.4h16.8%27%2F%3E%3Ccircle%20cx%3D%2715.2%27%20cy%3D%2712.4%27%20r%3D%271%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-sofa { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.6%27%20y%3D%2710.4%27%20width%3D%2718.8%27%20height%3D%277.6%27%20rx%3D%272.4%27%2F%3E%3Cpath%20d%3D%27M5.6%2010.4V7.8c0-1.3%201-2.3%202.3-2.3h8.2c1.3%200%202.3%201%202.3%202.3v2.6%27%2F%3E%3Cpath%20d%3D%27M8.4%2010.6v7.4M15.6%2010.6v7.4M8.6%2018v1.8M15.4%2018v1.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.6%27%20y%3D%2710.4%27%20width%3D%2718.8%27%20height%3D%277.6%27%20rx%3D%272.4%27%2F%3E%3Cpath%20d%3D%27M5.6%2010.4V7.8c0-1.3%201-2.3%202.3-2.3h8.2c1.3%200%202.3%201%202.3%202.3v2.6%27%2F%3E%3Cpath%20d%3D%27M8.4%2010.6v7.4M15.6%2010.6v7.4M8.6%2018v1.8M15.4%2018v1.8%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-armchair { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%276.2%27%20y%3D%279.8%27%20width%3D%2711.6%27%20height%3D%278.2%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M6.2%2012.2H4.8a2.1%202.1%200%200%200%200%204.2h1.4M17.8%2012.2h1.4a2.1%202.1%200%200%201%200%204.2h-1.4%27%2F%3E%3Cpath%20d%3D%27M8.6%209.8V7.4c0-1.2%201-2.2%202.2-2.2h2.4c1.2%200%202.2%201%202.2%202.2v2.4%27%2F%3E%3Cpath%20d%3D%27M9%2018v1.8M15%2018v1.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%276.2%27%20y%3D%279.8%27%20width%3D%2711.6%27%20height%3D%278.2%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M6.2%2012.2H4.8a2.1%202.1%200%200%200%200%204.2h1.4M17.8%2012.2h1.4a2.1%202.1%200%200%201%200%204.2h-1.4%27%2F%3E%3Cpath%20d%3D%27M8.6%209.8V7.4c0-1.2%201-2.2%202.2-2.2h2.4c1.2%200%202.2%201%202.2%202.2v2.4%27%2F%3E%3Cpath%20d%3D%27M9%2018v1.8M15%2018v1.8%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-deco_table { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M2.8%209.4h18.4%27%2F%3E%3Cpath%20d%3D%27M5.8%209.4v9M18.2%209.4v9%27%2F%3E%3Cpath%20d%3D%27M8.2%205.6h7.6%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M2.8%209.4h18.4%27%2F%3E%3Cpath%20d%3D%27M5.8%209.4v9M18.2%209.4v9%27%2F%3E%3Cpath%20d%3D%27M8.2%205.6h7.6%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-tv { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.8%27%20y%3D%274.6%27%20width%3D%2718.4%27%20height%3D%2712.4%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M8.6%2020.4h6.8M12%2017v3.4%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.8%27%20y%3D%274.6%27%20width%3D%2718.4%27%20height%3D%2712.4%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M8.6%2020.4h6.8M12%2017v3.4%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-eraser { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.6%2015.6l7.8-7.8a2%202%200%200%201%202.8%200l4.2%204.2a2%202%200%200%201%200%202.8l-4.4%204.4H8.4l-3.8-3.6z%27%2F%3E%3Cpath%20d%3D%27M8.2%2020.4h11.4M9.4%2011.2l6%206%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.6%2015.6l7.8-7.8a2%202%200%200%201%202.8%200l4.2%204.2a2%202%200%200%201%200%202.8l-4.4%204.4H8.4l-3.8-3.6z%27%2F%3E%3Cpath%20d%3D%27M8.2%2020.4h11.4M9.4%2011.2l6%206%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-warning { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M10.6%204.5L2.9%2018.1c-.6%201.1.2%202.4%201.4%202.4h15.4c1.2%200%202-1.3%201.4-2.4L13.4%204.5a1.6%201.6%200%200%200-2.8%200z%27%2F%3E%3Cpath%20d%3D%27M12%209.6v4.6M12%2017.3v.1%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M10.6%204.5L2.9%2018.1c-.6%201.1.2%202.4%201.4%202.4h15.4c1.2%200%202-1.3%201.4-2.4L13.4%204.5a1.6%201.6%200%200%200-2.8%200z%27%2F%3E%3Cpath%20d%3D%27M12%209.6v4.6M12%2017.3v.1%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-check { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%278.4%27%2F%3E%3Cpath%20d%3D%27M8.1%2012.3l2.8%202.8%205-5.2%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%278.4%27%2F%3E%3Cpath%20d%3D%27M8.1%2012.3l2.8%202.8%205-5.2%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-gamepad { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M8.5%208.6h7a5.5%205.5%200%200%201%205.5%205.5%203.4%203.4%200%200%201-6.2%201.9l-.7-1h-4.2l-.7%201A3.4%203.4%200%200%201%203%2014.1a5.5%205.5%200%200%201%205.5-5.5z%27%2F%3E%3Cpath%20d%3D%27M7.6%2011.9v2.4M6.4%2013.1h2.4M15.6%2012.4h.1M17.4%2014.1h.1%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M8.5%208.6h7a5.5%205.5%200%200%201%205.5%205.5%203.4%203.4%200%200%201-6.2%201.9l-.7-1h-4.2l-.7%201A3.4%203.4%200%200%201%203%2014.1a5.5%205.5%200%200%201%205.5-5.5z%27%2F%3E%3Cpath%20d%3D%27M7.6%2011.9v2.4M6.4%2013.1h2.4M15.6%2012.4h.1M17.4%2014.1h.1%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-pencil { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.5%2019.5h3.3L19.4%207.9a1.9%201.9%200%200%200%200-2.7l-.6-.6a1.9%201.9%200%200%200-2.7%200L4.5%2016.2z%27%2F%3E%3Cpath%20d%3D%27M15.3%205.9l2.8%202.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4.5%2019.5h3.3L19.4%207.9a1.9%201.9%200%200%200%200-2.7l-.6-.6a1.9%201.9%200%200%200-2.7%200L4.5%2016.2z%27%2F%3E%3Cpath%20d%3D%27M15.3%205.9l2.8%202.8%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-menu { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%207h16M4%2012h16M4%2017h16%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%207h16M4%2012h16M4%2017h16%27%2F%3E%3C%2Fsvg%3E"); }
+
+
+/* Мебель на плане берёт те же маски, что и иконки интерфейса. */
+.plan-el.sofa::before { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.6%27%20y%3D%2710.4%27%20width%3D%2718.8%27%20height%3D%277.6%27%20rx%3D%272.4%27%2F%3E%3Cpath%20d%3D%27M5.6%2010.4V7.8c0-1.3%201-2.3%202.3-2.3h8.2c1.3%200%202.3%201%202.3%202.3v2.6%27%2F%3E%3Cpath%20d%3D%27M8.4%2010.6v7.4M15.6%2010.6v7.4M8.6%2018v1.8M15.4%2018v1.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.6%27%20y%3D%2710.4%27%20width%3D%2718.8%27%20height%3D%277.6%27%20rx%3D%272.4%27%2F%3E%3Cpath%20d%3D%27M5.6%2010.4V7.8c0-1.3%201-2.3%202.3-2.3h8.2c1.3%200%202.3%201%202.3%202.3v2.6%27%2F%3E%3Cpath%20d%3D%27M8.4%2010.6v7.4M15.6%2010.6v7.4M8.6%2018v1.8M15.4%2018v1.8%27%2F%3E%3C%2Fsvg%3E"); }
+.plan-el.armchair::before { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%276.2%27%20y%3D%279.8%27%20width%3D%2711.6%27%20height%3D%278.2%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M6.2%2012.2H4.8a2.1%202.1%200%200%200%200%204.2h1.4M17.8%2012.2h1.4a2.1%202.1%200%200%201%200%204.2h-1.4%27%2F%3E%3Cpath%20d%3D%27M8.6%209.8V7.4c0-1.2%201-2.2%202.2-2.2h2.4c1.2%200%202.2%201%202.2%202.2v2.4%27%2F%3E%3Cpath%20d%3D%27M9%2018v1.8M15%2018v1.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%276.2%27%20y%3D%279.8%27%20width%3D%2711.6%27%20height%3D%278.2%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M6.2%2012.2H4.8a2.1%202.1%200%200%200%200%204.2h1.4M17.8%2012.2h1.4a2.1%202.1%200%200%201%200%204.2h-1.4%27%2F%3E%3Cpath%20d%3D%27M8.6%209.8V7.4c0-1.2%201-2.2%202.2-2.2h2.4c1.2%200%202.2%201%202.2%202.2v2.4%27%2F%3E%3Cpath%20d%3D%27M9%2018v1.8M15%2018v1.8%27%2F%3E%3C%2Fsvg%3E"); }
+.plan-el.deco_table::before { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M2.8%209.4h18.4%27%2F%3E%3Cpath%20d%3D%27M5.8%209.4v9M18.2%209.4v9%27%2F%3E%3Cpath%20d%3D%27M8.2%205.6h7.6%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M2.8%209.4h18.4%27%2F%3E%3Cpath%20d%3D%27M5.8%209.4v9M18.2%209.4v9%27%2F%3E%3Cpath%20d%3D%27M8.2%205.6h7.6%27%2F%3E%3C%2Fsvg%3E"); }
+.plan-el.tv::before { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.8%27%20y%3D%274.6%27%20width%3D%2718.4%27%20height%3D%2712.4%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M8.6%2020.4h6.8M12%2017v3.4%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%272.8%27%20y%3D%274.6%27%20width%3D%2718.4%27%20height%3D%2712.4%27%20rx%3D%272.2%27%2F%3E%3Cpath%20d%3D%27M8.6%2020.4h6.8M12%2017v3.4%27%2F%3E%3C%2Fsvg%3E"); }
+
+/* Иконки внутри компонентов */
+.topbar h1 { display: flex; align-items: center; gap: 9px; }
+.topbar h1 .ic { width: 20px; height: 20px; opacity: 0.9; }
+.card-head h2 { display: flex; align-items: center; gap: 8px; }
+.card-head h2 .ic { width: 17px; height: 17px; opacity: 0.75; }
+.light { display: flex; align-items: center; gap: 7px; }
+.light .ic { width: 15px; height: 15px; }
+.light.on { color: var(--text); }
+button.action.bar,
+button.mini,
+a.btn-link,
+.pal-tool,
+#edit-plan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.pal-tool, #edit-plan { justify-content: flex-start; }
+button.mini .ic, a.btn-link .ic, button.action .ic { width: 16px; height: 16px; }
+#theme-toggle { padding: 7px 10px; }
+#theme-toggle .ic { width: 17px; height: 17px; }
+.selection-chip { display: inline-flex; align-items: center; gap: 7px; }
+.selection-chip .ic { width: 13px; height: 13px; }
+.modal-head .mini { padding: 6px 10px; }
+.status-line { display: flex; align-items: center; gap: 7px; }
+.status-line .ic { width: 15px; height: 15px; }
+.booking-note { display: flex; align-items: center; gap: 7px; }
+.booking-note .ic { width: 14px; height: 14px; }
+
+
+/* Поколение приставки рядом с иконкой в заголовке карточки. */
+.card-head h2 .kind-mark {
+  font-size: 0.72em;
+  font-weight: 700;
+  color: var(--muted);
+  margin-left: -4px;
+}
+
+/* Журнал — отдельная иконка документа, чтобы не путать со «списком». */
+.ic-doc { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%275%27%20y%3D%273.2%27%20width%3D%2714%27%20height%3D%2717.6%27%20rx%3D%272.4%27%2F%3E%3Cpath%20d%3D%27M8.4%208.4h7.2M8.4%2012h7.2M8.4%2015.6h4.4%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Crect%20x%3D%275%27%20y%3D%273.2%27%20width%3D%2714%27%20height%3D%2717.6%27%20rx%3D%272.4%27%2F%3E%3Cpath%20d%3D%27M8.4%208.4h7.2M8.4%2012h7.2M8.4%2015.6h4.4%27%2F%3E%3C%2Fsvg%3E"); }
+
+/* --- Логотип клуба, файловые кнопки, отключённые строки --- */
+
+/* Логотип в шапке рядом с названием клуба. */
+.club-logo {
+  height: 26px;
+  max-width: 120px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+/* Кнопка «Выбрать файл»: <label> вокруг скрытого <input type="file">,
+   выглядит как обычная главная кнопка. */
+.btn-file {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  padding: 11px 20px;
+  background: var(--blue);
+  color: var(--accent-fg);
+  font-weight: 700;
+  font-size: 0.94rem;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 5px 16px rgba(var(--accent-rgb), 0.3);
+  transition: filter 0.15s;
+}
+.btn-file:hover { filter: brightness(1.08); }
+.btn-file .ic { width: 16px; height: 16px; }
+
+.logo-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.logo-preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 160px;
+  min-height: 76px;
+  padding: 10px 16px;
+  border: 1px dashed var(--glass-border);
+  border-radius: 14px;
+  background: rgba(var(--ink), 0.03);
+}
+.logo-preview { max-width: 200px; max-height: 56px; object-fit: contain; }
+.logo-row .settings-actions { margin-top: 0; }
+
+/* Опасное действие в модальном окне (удаление, замена базы). */
+button.primary.danger-btn {
+  background: var(--red);
+  color: #fff;
+  box-shadow: 0 5px 16px rgba(200, 72, 63, 0.3);
+}
+
+/* Отключённый сотрудник в таблице — приглушённая строка. */
+tr.row-off td { opacity: 0.55; }
+
+/* --- Адреса для входа с других устройств («Настройки») --- */
+
+.network-list { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+
+.network-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  background: rgba(var(--ink), 0.04);
+}
+.network-row-virtual { opacity: 0.6; }
+
+.network-url {
+  font-weight: 700;
+  font-size: 1.02rem;
+  color: var(--accent-ink);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+.network-url:hover { text-decoration: underline; }
+
+.network-note { color: var(--muted); font-size: 0.82rem; margin-right: auto; }
+
+/* --- Диагностика («Настройки») --- */
+
+.diag-info { display: flex; flex-direction: column; gap: 2px; margin: 14px 0; }
+
+.diag-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 7px 0;
+  border-bottom: 0.5px solid var(--hairline);
+  font-size: 0.88rem;
+}
+.diag-label { color: var(--muted); min-width: 220px; }
+.diag-value { font-weight: 600; word-break: break-all; }
+
+.diag-title { margin: 18px 0 8px; font-size: 0.95rem; font-weight: 700; }
+
+.diag-error {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 0.5px solid var(--hairline);
+  background: rgba(var(--ink), 0.04);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* --- Плашка «обновите сервер» --- */
+
+.restart-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--yellow);
+  color: #1a1400;
+  font-weight: 650;
+  font-size: 0.9rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+.restart-banner .ic { width: 18px; height: 18px; flex: none; }
+.restart-banner button.mini {
+  margin-left: auto;
+  background: rgba(0, 0, 0, 0.12);
+  border-color: rgba(0, 0, 0, 0.2);
+  color: #1a1400;
+}
+
+/* Подсказка «создайте владельца» — как плашка обновления, но спокойнее. */
+.owner-setup-banner {
+  background: var(--blue);
+  color: var(--accent-fg);
+}
+.owner-setup-banner button.mini {
+  margin-left: 0;
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--accent-fg);
+}
+.owner-setup-banner button.mini:first-of-type { margin-left: auto; }
+
+/* --- Выпадающие списки: цвета из темы, а не из системы --- */
+
+/* Сам раскрытый список рисует браузер. Он слушается color-scheme (задан
+   в темах выше), но пункты всё равно полезно покрасить явно — иначе в
+   некоторых браузерах остаётся белый фон поверх тёмной страницы. */
+select option,
+select optgroup {
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* Стрелка списка: два варианта вместо одного серого — внутри data-URI
+   переменные темы не работают, поэтому цвет задан в самой картинке. */
+.card select,
+.field select,
+.inline-form select,
+.settings-card td select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23aab3c0' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+html[data-theme="light"] .card select,
+html[data-theme="light"] .field select,
+html[data-theme="light"] .inline-form select,
+html[data-theme="light"] .settings-card td select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%235b6472' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+/* --- Личные ограничения сотрудника (карточка сотрудника) --- */
+/* Тот же вид, что у таблицы «Роли и права» в настройках: галочки и
+   мгновенное сохранение. */
+
+.user-limits { margin-top: 22px; }
+
+.limit-title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.limit-table { margin-top: 14px; box-shadow: none; }
+.limit-table th,
+.limit-table td { padding: 10px 12px; font-size: 0.87rem; }
+.limit-table td:first-child { line-height: 1.35; }
+
+.limit-access { text-align: center; width: 84px; }
+.limit-access input { width: 17px; height: 17px; accent-color: var(--blue); cursor: pointer; }
+.limit-access input:disabled { cursor: default; opacity: 0.5; }
+
+.limit-source { width: 190px; white-space: nowrap; }
+.limit-from-role { color: var(--muted); font-size: 0.82rem; }
+.limit-from-own { color: var(--accent-ink); font-weight: 650; font-size: 0.82rem; }
+
+.limit-reset {
+  margin-left: 8px;
+  padding: 3px 9px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* Широкое модальное окно — для таблиц внутри окна (карточка сотрудника). */
+.modal.wide { max-width: 720px; }
+
+/* Отметка в таблице сотрудников: права отличаются от прав роли. */
+.limit-mark {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--orange-text);
+}
+
+/* Иконки, добавленные позже: глаз для показа пароля. */
+.ic-eye { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M1.8%2012s3.6-6.4%2010.2-6.4S22.2%2012%2022.2%2012s-3.6%206.4-10.2%206.4S1.8%2012%201.8%2012z%27%2F%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%273.1%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M1.8%2012s3.6-6.4%2010.2-6.4S22.2%2012%2022.2%2012s-3.6%206.4-10.2%206.4S1.8%2012%201.8%2012z%27%2F%3E%3Ccircle%20cx%3D%2712%27%20cy%3D%2712%27%20r%3D%273.1%27%2F%3E%3C%2Fsvg%3E"); }
+.ic-eye_off { -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M9.6%205.9a9.9%209.9%200%200%201%202.4-.3c6.6%200%2010.2%206.4%2010.2%206.4s-1%201.7-2.8%203.3%27%2F%3E%3Cpath%20d%3D%27M6.4%207.5C3.4%209.4%201.8%2012%201.8%2012s3.6%206.4%2010.2%206.4c1.6%200%203-.4%204.2-1%27%2F%3E%3Cpath%20d%3D%27M9.9%209.9a3.1%203.1%200%200%200%204.3%204.3%27%2F%3E%3Cpath%20d%3D%27M3.2%203.2l17.6%2017.6%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M9.6%205.9a9.9%209.9%200%200%201%202.4-.3c6.6%200%2010.2%206.4%2010.2%206.4s-1%201.7-2.8%203.3%27%2F%3E%3Cpath%20d%3D%27M6.4%207.5C3.4%209.4%201.8%2012%201.8%2012s3.6%206.4%2010.2%206.4c1.6%200%203-.4%204.2-1%27%2F%3E%3Cpath%20d%3D%27M9.9%209.9a3.1%203.1%200%200%200%204.3%204.3%27%2F%3E%3Cpath%20d%3D%27M3.2%203.2l17.6%2017.6%27%2F%3E%3C%2Fsvg%3E"); }
+
+/* --- Глазок у поля пароля --- */
+
+.password-row { position: relative; display: block; }
+.password-row input { padding-right: 44px; }
+
+.password-eye {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.password-eye:hover { background: rgba(var(--ink), 0.08); color: var(--text); }
+.password-eye.on { color: var(--accent-ink); }
+.password-eye .ic { width: 18px; height: 18px; }
+/* Включённое состояние — перечёркнутый глаз. */
+.password-eye.on .ic-eye {
+  /* Пароль показан — рисуем перечёркнутый глаз («скрыть»). Маска берётся
+     та же, что у .ic-eye_off: раньше здесь стояла переменная, которой в
+     стилях не было, и вместо значка получался закрашенный квадрат. */
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M9.6%205.9a9.9%209.9%200%200%201%202.4-.3c6.6%200%2010.2%206.4%2010.2%206.4s-1%201.7-2.8%203.3%27%2F%3E%3Cpath%20d%3D%27M6.4%207.5C3.4%209.4%201.8%2012%201.8%2012s3.6%206.4%2010.2%206.4c1.6%200%203-.4%204.2-1%27%2F%3E%3Cpath%20d%3D%27M9.9%209.9a3.1%203.1%200%200%200%204.3%204.3%27%2F%3E%3Cpath%20d%3D%27M3.2%203.2l17.6%2017.6%27%2F%3E%3C%2Fsvg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000%27%20stroke-width%3D%271.6%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M9.6%205.9a9.9%209.9%200%200%201%202.4-.3c6.6%200%2010.2%206.4%2010.2%206.4s-1%201.7-2.8%203.3%27%2F%3E%3Cpath%20d%3D%27M6.4%207.5C3.4%209.4%201.8%2012%201.8%2012s3.6%206.4%2010.2%206.4c1.6%200%203-.4%204.2-1%27%2F%3E%3Cpath%20d%3D%27M9.9%209.9a3.1%203.1%200%200%200%204.3%204.3%27%2F%3E%3Cpath%20d%3D%27M3.2%203.2l17.6%2017.6%27%2F%3E%3C%2Fsvg%3E");
+}
+
+/* --- Масштаб логотипа --- */
+
+.logo-scale {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.logo-scale label { color: var(--muted); font-size: 0.86rem; font-weight: 600; }
+.logo-scale input[type="range"] { flex: 1 1 220px; max-width: 320px; accent-color: var(--blue); }
+
+/* --- Форма добавления стола в палитре редактора --- */
+
+.pal-form { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+.pal-form input,
+.pal-form select {
+  width: 100%;
+  appearance: none;
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+  border: 0.5px solid var(--hairline);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 0.88rem;
+  font-family: inherit;
+}
+.pal-form select { padding-right: 30px; }
+.pal-form button { width: 100%; justify-content: center; }
+
+/* --- Вкладка «Касса»: пополнение счёта клиента --- */
+
+.cashdesk-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.cashdesk-main, .cashdesk-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.balance-line {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0 2px;
+}
+@media (max-width: 1080px) {
+  .cashdesk-layout { grid-template-columns: 1fr; }
+}
+
+/* --- Чеки на остаток --- */
+
+.voucher-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+
+.voucher-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 0.5px solid var(--hairline);
+  border-radius: 999px;
+  background: rgba(var(--ink), 0.05);
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+button.voucher-chip { cursor: pointer; }
+button.voucher-chip:hover { background: rgba(var(--accent-rgb), 0.12); }
+
+/* Код выданного чека — крупно, его диктуют гостю. */
+.voucher-code {
+  margin: 6px 0 2px;
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-ink);
+}
+
+
+/* ================= Телефон и маленький планшет =================
+   Карта зала на маленьком экране бесполезна: столы расставлены по
+   координатам и не помещаются. Вместо неё — крупный список столов,
+   где всё делается пальцем. Заодно увеличиваем кнопки и поля: на
+   телефоне попасть в мелкий элемент почти невозможно. */
+
+.phone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.phone-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--glass-border);
+  border-left: 5px solid rgba(var(--ink), 0.18);
+  background: var(--glass);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.phone-row.busy { border-left-color: var(--blue); }
+.phone-row.prepaid { border-left-color: var(--yellow); }
+.phone-row.expired { border-left-color: var(--red); }
+.phone-row.booked { border-left-color: var(--orange-text); }
+
+.phone-name { font-size: 1.15rem; font-weight: 700; }
+.phone-state {
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.phone-row.expired .phone-state { color: var(--red); font-weight: 700; }
+.phone-row.prepaid .phone-state { color: var(--yellow); }
+
+.phone-actions { display: flex; flex-direction: column; gap: 10px; }
+.phone-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 54px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--ink), 0.05);
+  color: inherit;
+  font-size: 1.02rem;
+  cursor: pointer;
+}
+.phone-action:hover { background: rgba(var(--ink), 0.09); }
+
+@media (max-width: 760px) {
+  main { padding: 12px 12px 90px; }
+  header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  header h1 { font-size: 1.05rem; }
+  .user-area { flex-wrap: wrap; gap: 6px; }
+  .user-chip { display: none; } /* имя сотрудника видно в «Настройках» */
+
+  /* Боковое меню превращается в нижнюю панель: большим пальцем до неё
+     дотянуться проще всего, а места по горизонтали на телефоне нет. */
+  .layout { flex-direction: column; }
+  .sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: auto;
+    height: auto;
+    flex-direction: row;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+    border-right: 0;
+    border-top: 1px solid var(--hairline);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar.collapsed { width: auto; }
+  .side-nav { flex-direction: row; gap: 2px; }
+  .nav-toggle { display: none; } /* сворачивать нечего */
+  .nav-item {
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 66px;
+    padding: 6px 8px;
+    font-size: 0.72rem;
+    text-align: center;
+  }
+  .nav-label { display: block !important; font-size: 0.68rem; }
+
+  /* Пальцем нужно попадать: кнопки и поля крупнее. */
+  button, .mini { min-height: 42px; }
+  input, select { min-height: 42px; font-size: 1rem; }
+
+  .modal { width: calc(100vw - 20px); max-width: none; }
+  .settings-grid { grid-template-columns: 1fr; }
+  .cards { grid-template-columns: 1fr; }
+
+  /* Широкие таблицы прокручиваются вбок, а не ломают вёрстку. */
+  .data-table { min-width: 640px; }
+  .table-scroll { overflow-x: auto; }
+
+  /* Легенда и редактор зала на телефоне не нужны. */
+  .legend, .map-tools { display: none; }
+}

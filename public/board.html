@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Свободные столы</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <style>
+    /* Экран для гостей: телевизор в зале. Крупно, издалека, тёмный фон —
+       чтобы не слепил и не выгорал. Ничего лишнего: только столы, цены и
+       акция. Денег клуба и имён клиентов здесь нет. */
+    :root {
+      color-scheme: dark;
+      --bg: #14171b;
+      --card: #1c2026;
+      --line: #2a3038;
+      --text: #eef1f5;
+      --muted: #9aa3ad;
+      --free: #4ec98a;
+      --busy: #c2564f;
+      --accent: #d8c07a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 3vh 3vw;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 3vh;
+    }
+    header img { max-height: 9vh; }
+    h1 { font-size: clamp(28px, 4.2vw, 64px); margin: 0; letter-spacing: -0.02em; }
+    .clock {
+      margin-left: auto;
+      font-size: clamp(24px, 3.4vw, 52px);
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+
+    .promo {
+      margin-bottom: 3vh;
+      padding: 2vh 2.4vw;
+      border-radius: 18px;
+      border: 2px solid var(--accent);
+      background: rgba(216, 192, 122, 0.1);
+      font-size: clamp(20px, 2.6vw, 40px);
+      font-weight: 700;
+      color: var(--accent);
+      text-align: center;
+    }
+
+    .tables {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 2vh 1.5vw;
+      margin-bottom: 4vh;
+    }
+    .table {
+      padding: 2.4vh 1.6vw;
+      border-radius: 20px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-left: 10px solid var(--busy);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .table.free { border-left-color: var(--free); }
+    .table-name { font-size: clamp(22px, 2.8vw, 44px); font-weight: 700; }
+    .table-state { font-size: clamp(16px, 1.8vw, 28px); color: var(--busy); }
+    .table.free .table-state { color: var(--free); }
+    .table-kind { font-size: clamp(13px, 1.2vw, 20px); color: var(--muted); }
+
+    h2 {
+      font-size: clamp(18px, 2vw, 32px);
+      color: var(--muted);
+      font-weight: 600;
+      margin: 0 0 1.4vh;
+    }
+    .prices { display: flex; flex-wrap: wrap; gap: 1.4vh 1.4vw; }
+    .price {
+      padding: 1.6vh 1.6vw;
+      border-radius: 16px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      font-size: clamp(18px, 2vw, 32px);
+    }
+    .price.now { border-color: var(--accent); color: var(--accent); }
+    .price b { font-weight: 700; }
+    .price small { display: block; font-size: 0.6em; color: var(--muted); }
+
+    .footer {
+      margin-top: 3vh;
+      text-align: center;
+      color: var(--muted);
+      font-size: clamp(13px, 1.2vw, 20px);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img id="logo" alt="" hidden>
+    <h1 id="club">Бильярдный клуб</h1>
+    <div class="clock" id="clock"></div>
+  </header>
+
+  <div class="promo" id="promo" hidden></div>
+
+  <div class="tables" id="tables"></div>
+
+  <h2>Цены</h2>
+  <div class="prices" id="prices"></div>
+
+  <p class="footer" id="footer">Свободные столы обновляются автоматически</p>
+
+  <script>
+    // Экран только показывает: ничего не нажимается, вход не нужен.
+    // Данные берём из открытого /api/board — там нет ни денег клуба,
+    // ни имён клиентов.
+    // Те же виды столов, что в программе (см. KIND_META в app.js).
+    const KIND_LABELS = {
+      billiard: "бильярд",
+      ps3: "PlayStation 3",
+      ps4: "PlayStation 4",
+      ps5: "PlayStation 5",
+      tv: "телевизор",
+    };
+
+    function tick() {
+      document.getElementById("clock").textContent = new Date().toLocaleTimeString(
+        "ru-RU",
+        { hour: "2-digit", minute: "2-digit" }
+      );
+    }
+
+    async function refresh() {
+      let data;
+      try {
+        data = await (await fetch("/api/board")).json();
+      } catch {
+        document.getElementById("footer").textContent =
+          "Нет связи с программой клуба — экран покажет данные, как только связь вернётся";
+        return;
+      }
+      document.getElementById("club").textContent = data.club_name;
+      document.title = data.club_name;
+      const logo = document.getElementById("logo");
+      if (data.club_logo) {
+        logo.src = data.club_logo;
+        logo.hidden = false;
+      } else {
+        logo.hidden = true;
+      }
+
+      const promo = document.getElementById("promo");
+      if (data.promotion) {
+        promo.textContent =
+          `${data.promotion.name} — скидка ${data.promotion.discount_percent}% прямо сейчас`;
+        promo.hidden = false;
+      } else {
+        promo.hidden = true;
+      }
+
+      const tables = document.getElementById("tables");
+      tables.replaceChildren();
+      for (const table of data.tables) {
+        const card = document.createElement("div");
+        card.className = `table ${table.free ? "free" : "busy"}`;
+        const name = document.createElement("div");
+        name.className = "table-name";
+        name.textContent = table.name;
+        const state = document.createElement("div");
+        state.className = "table-state";
+        state.textContent = table.free ? "свободен" : "занят";
+        const kind = document.createElement("div");
+        kind.className = "table-kind";
+        kind.textContent = KIND_LABELS[table.kind] ?? "";
+        card.append(name, state, kind);
+        tables.append(card);
+      }
+
+      const prices = document.getElementById("prices");
+      prices.replaceChildren();
+      for (const tariff of data.tariffs) {
+        const item = document.createElement("div");
+        item.className = `price${tariff.id === data.current_tariff_id ? " now" : ""}`;
+        const value = document.createElement("b");
+        value.textContent = `${tariff.price_per_hour} ${data.currency}/час`;
+        const label = document.createElement("small");
+        label.textContent =
+          tariff.name + (tariff.id === data.current_tariff_id ? " · сейчас" : "");
+        item.append(value, label);
+        prices.append(item);
+      }
+
+      const free = data.tables.filter((t) => t.free).length;
+      document.getElementById("footer").textContent =
+        free > 0
+          ? `Свободно столов: ${free} из ${data.tables.length}`
+          : "Все столы заняты — спросите у администратора о брони";
+    }
+
+    tick();
+    refresh();
+    setInterval(tick, 15000);
+    setInterval(refresh, 10000);
+  </script>
+</body>
+</html>

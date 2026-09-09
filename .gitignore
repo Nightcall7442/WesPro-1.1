@@ -1,0 +1,11 @@
+node_modules/
+billiards.db
+billiards.db-*
+*.log
+.env
+devices.json
+logs/
+backups/
+# Собранные архивы для передачи клубу — держим вне репозитория.
+billiardsclub_*.zip
+wespro_*.zip
