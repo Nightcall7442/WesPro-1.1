@@ -9,6 +9,11 @@ export const ROOT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)
 export const DATABASE_PATH =
   process.env.BILLIARDS_DATABASE_PATH ?? path.join(ROOT_DIR, "billiards.db");
 
+// База центральной панели (сеть клубов): подписки, оплаты, журнал сети.
+// Отдельный файл от базы клуба — см. src/hub/db.js.
+export const HUB_DATABASE_PATH =
+  process.env.WESPRO_HUB_DATABASE_PATH ?? path.join(ROOT_DIR, "hub.db");
+
 export const PORT = Number(process.env.PORT ?? 8000);
 
 // Сидинг стартовых данных при первом запуске на пустой базе.

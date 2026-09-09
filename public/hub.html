@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WesPro — панель сети клубов</title>
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    onload="this.onload=null;this.rel='stylesheet'">
+  <script>document.documentElement.dataset.theme = "dark";</script>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/hub.css">
+</head>
+<body class="hub">
+  <header class="hub-top">
+    <div class="hub-brand">WesPro <span>сеть клубов</span></div>
+    <nav class="hub-tabs" id="hub-tabs">
+      <button class="hub-tab" data-tab="overview">Сводка</button>
+      <button class="hub-tab" data-tab="clubs">Клубы</button>
+      <button class="hub-tab" data-tab="plans">Тарифы</button>
+      <button class="hub-tab" data-tab="messages">Сообщения</button>
+      <button class="hub-tab" data-tab="journal">Журнал сети</button>
+      <button class="hub-tab" data-tab="settings">Настройки</button>
+    </nav>
+    <div class="hub-user">
+      <span id="hub-user-name"></span>
+      <button class="mini" id="hub-logout">Выйти</button>
+    </div>
+  </header>
+
+  <main class="hub-main">
+    <!-- Сводка -->
+    <section class="hub-page" data-page="overview">
+      <div class="hub-cards" id="stat-cards"></div>
+      <div class="hub-split">
+        <div class="hub-panel">
+          <h2>Требует внимания</h2>
+          <div id="attention-list" class="attention-list"></div>
+        </div>
+        <div class="hub-panel">
+          <h2>Рост сети</h2>
+          <table class="hub-table" id="growth-table"></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Клубы -->
+    <section class="hub-page" data-page="clubs" hidden>
+      <div class="hub-toolbar">
+        <input id="clubs-search" class="cash-input" type="search" placeholder="Поиск: название, город, телефон">
+        <select id="clubs-status">
+          <option value="all">Все статусы</option>
+          <option value="trial">Пробный период</option>
+          <option value="active">Активные</option>
+          <option value="overdue">Просроченные</option>
+          <option value="blocked">Заблокированные</option>
+          <option value="archived">В архиве</option>
+        </select>
+        <button class="primary" id="club-add">Добавить клуб</button>
+      </div>
+      <table class="hub-table" id="clubs-table"></table>
+    </section>
+
+    <!-- Тарифы -->
+    <section class="hub-page" data-page="plans" hidden>
+      <div class="hub-toolbar">
+        <button class="primary" id="plan-add">Новый тариф</button>
+      </div>
+      <table class="hub-table" id="plans-table"></table>
+    </section>
+
+    <!-- Сообщения -->
+    <section class="hub-page" data-page="messages" hidden>
+      <div class="hub-toolbar">
+        <button class="primary" id="message-add">Написать клубам</button>
+      </div>
+      <table class="hub-table" id="messages-table"></table>
+    </section>
+
+    <!-- Журнал сети -->
+    <section class="hub-page" data-page="journal" hidden>
+      <div class="hub-toolbar">
+        <select id="journal-event"><option value="all">Все события</option></select>
+      </div>
+      <table class="hub-table" id="journal-table"></table>
+    </section>
+
+    <!-- Настройки -->
+    <section class="hub-page" data-page="settings" hidden>
+      <div class="hub-split">
+        <div class="hub-panel">
+          <h2>Правила подписки</h2>
+          <div class="settings-grid" id="settings-form"></div>
+          <button class="primary" id="settings-save">Сохранить</button>
+        </div>
+        <div class="hub-panel">
+          <h2>Кто входит в панель</h2>
+          <table class="hub-table" id="hub-users-table"></table>
+          <button class="mini" id="hub-user-add">Добавить сотрудника</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="hub-modal-overlay" class="modal-overlay" hidden>
+    <div class="modal" id="hub-modal">
+      <div class="modal-head">
+        <h3 id="hub-modal-title"></h3>
+        <button class="modal-close" id="hub-modal-close" aria-label="Закрыть">×</button>
+      </div>
+      <div id="hub-modal-body"></div>
+    </div>
+  </div>
+  <div id="hub-toasts" class="toasts"></div>
+
+  <script src="/static/hub.js"></script>
+</body>
+</html>

@@ -5,6 +5,8 @@ import express from "express";
 import path from "node:path";
 
 import { PUBLIC_DIR } from "./config.js";
+import { hubTokenFromCookie, hubUserByToken } from "./hub/auth.js";
+import { createHubRouter } from "./hub/routes.js";
 import { createApiRouter } from "./routes/api.js";
 import { getUserByToken, tokenFromCookieHeader } from "./services/auth.js";
 import { logServerError } from "./services/diagnostics.js";
@@ -16,8 +18,13 @@ import {
   UnauthorizedError,
 } from "./services/errors.js";
 
-/** @param {import("node:sqlite").DatabaseSync} db */
-export function createApp(db) {
+/**
+ * @param {import("node:sqlite").DatabaseSync} db база клуба
+ * @param {import("node:sqlite").DatabaseSync | null} [hubDb] база
+ *   центральной панели сети клубов. Не передана — раздел /hub не
+ *   поднимается: одиночному клубу он не нужен.
+ */
+export function createApp(db, hubDb = null) {
   const app = express();
   // Загрузка резервной копии — сырой файл .db в теле запроса. Разбирается
   // до express.json, чтобы JSON-парсер не пытался читать двоичные данные.
@@ -57,6 +64,26 @@ export function createApp(db) {
   });
 
   app.use("/static", express.static(PUBLIC_DIR));
+
+  // --- Центральная панель сети клубов --------------------------------------
+  // Свой вход, своя cookie, своя база: сотрудник клуба сюда не попадает
+  // даже с действующей сессией клуба.
+  if (hubDb) {
+    app.use("/hub", (req, res, next) => {
+      req.hubToken = hubTokenFromCookie(req.headers.cookie);
+      req.hubUser = hubUserByToken(hubDb, req.hubToken);
+      next();
+    });
+    app.get("/hub", (req, res) => {
+      if (!req.hubUser) return res.redirect("/hub/login");
+      res.sendFile(path.join(PUBLIC_DIR, "hub.html"));
+    });
+    app.get("/hub/login", (req, res) => {
+      if (req.hubUser) return res.redirect("/hub");
+      res.sendFile(path.join(PUBLIC_DIR, "hub-login.html"));
+    });
+    app.use("/hub", createHubRouter(hubDb));
+  }
 
   // Всё API, кроме входа и названия/логотипа клуба (их показывает страница
   // входа — до авторизации), требует авторизации.

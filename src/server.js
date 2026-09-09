@@ -4,6 +4,8 @@
 import { createApp } from "./app.js";
 import { PORT, SEED_INITIAL_DATA } from "./config.js";
 import { createDatabase } from "./db.js";
+import { seedHubOwner } from "./hub/auth.js";
+import { createHubDatabase } from "./hub/db.js";
 import { seedInitialData } from "./seed.js";
 import { startAutoBackup } from "./services/auto-backup.js";
 import { startBookingReminders } from "./services/telegram.js";
@@ -23,12 +25,23 @@ startAutoBackup(db);
 // Напоминания о бронях в Telegram (если бот настроен в «Настройках»).
 startBookingReminders(db);
 
-const app = createApp(db);
+// Центральная панель сети клубов: своя база, свой раздел /hub.
+const hubDb = createHubDatabase();
+const hubOwner = seedHubOwner(hubDb);
+
+const app = createApp(db, hubDb);
 // Без указания адреса Express слушает все сетевые интерфейсы сразу:
 // зайти можно и с самого компьютера, и с любого устройства сети по
 // любому из адресов ниже.
 app.listen(PORT, () => {
   console.log(`Бильярдный клуб: http://127.0.0.1:${PORT}`);
+  console.log(`Панель сети клубов: http://127.0.0.1:${PORT}/hub`);
+  if (hubOwner) {
+    console.log(
+      `   Вход в панель — логин «${hubOwner.login}», пароль «${hubOwner.password}»` +
+        (hubOwner.generated ? " (сгенерирован, смените после входа)" : "")
+    );
+  }
 
   const addresses = lanAddresses();
   if (!addresses.length) {

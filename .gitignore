@@ -1,6 +1,8 @@
 node_modules/
 billiards.db
 billiards.db-*
+hub.db
+hub.db-*
 *.log
 .env
 devices.json

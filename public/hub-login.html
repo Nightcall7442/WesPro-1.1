@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WesPro — панель сети клубов</title>
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    onload="this.onload=null;this.rel='stylesheet'">
+  <script>
+    // Панель сети — всегда тёмная: это рабочее место владельца сервиса,
+    // а не зал клуба, и путать её с интерфейсом клуба не надо.
+    document.documentElement.dataset.theme = "dark";
+  </script>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .login-card {
+      width: 100%; max-width: 380px;
+      background: var(--glass-strong);
+      backdrop-filter: blur(24px) saturate(1.8);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      border: 1px solid var(--glass-border);
+      border-radius: 24px; box-shadow: var(--shadow);
+      padding: 32px 28px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .login-card h1 {
+      margin: 0; font-family: var(--font-display); font-size: 1.75rem; font-weight: 600;
+      text-align: center; letter-spacing: -0.02em; color: var(--accent-ink);
+    }
+    .login-card .sub { text-align: center; color: var(--muted); font-size: 0.9rem; margin: -6px 0 8px; }
+    .login-error { color: var(--red); font-size: 0.88rem; font-weight: 600; text-align: center; min-height: 1.2em; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="login-card" id="login-form">
+      <h1>WesPro</h1>
+      <p class="sub">Панель сети клубов</p>
+      <label class="field">Логин
+        <input id="login" type="text" autocomplete="username" required autofocus>
+      </label>
+      <label class="field">Пароль
+        <span class="password-row">
+          <input id="password" type="password" autocomplete="current-password" required>
+          <button type="button" id="password-eye" class="password-eye"
+                  title="Показать пароль" aria-label="Показать пароль">
+            <i class="ic ic-eye" aria-hidden="true"></i>
+          </button>
+        </span>
+      </label>
+      <p class="login-error" id="login-error"></p>
+      <button type="submit" class="primary">Войти</button>
+    </form>
+  </div>
+  <script>
+    "use strict";
+    (() => {
+      const input = document.getElementById("password");
+      const eye = document.getElementById("password-eye");
+      eye.addEventListener("click", () => {
+        const shown = input.type === "text";
+        input.type = shown ? "password" : "text";
+        eye.classList.toggle("on", !shown);
+        eye.title = shown ? "Показать пароль" : "Скрыть пароль";
+        eye.setAttribute("aria-label", eye.title);
+        input.focus();
+      });
+    })();
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorBox = document.getElementById("login-error");
+      errorBox.textContent = "";
+      try {
+        const response = await fetch("/hub/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            login: document.getElementById("login").value.trim(),
+            password: document.getElementById("password").value,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          errorBox.textContent = body.detail ?? "Не удалось войти";
+          return;
+        }
+        window.location.href = "/hub";
+      } catch (err) {
+        errorBox.textContent = "Сервер недоступен";
+      }
+    });
+  </script>
+</body>
+</html>

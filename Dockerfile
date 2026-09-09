@@ -8,9 +8,12 @@ RUN npm ci --omit=dev
 
 COPY . .
 
-# База на подключённом диске хостинга (переживает redeploy):
-# создайте volume и смонтируйте его в /data.
+# Базы на подключённом диске хостинга (переживают redeploy):
+# создайте volume и смонтируйте его в /data. БЕЗ ЭТОГО ДАННЫЕ ПРОПАДУТ
+# при каждом обновлении — файловая система контейнера временная.
 ENV BILLIARDS_DATABASE_PATH=/data/billiards.db
+# База центральной панели сети клубов (подписки и оплаты) — отдельный файл.
+ENV WESPRO_HUB_DATABASE_PATH=/data/hub.db
 RUN mkdir -p /data
 
 EXPOSE 8000
