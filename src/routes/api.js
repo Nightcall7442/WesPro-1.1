@@ -557,6 +557,8 @@ export function createApiRouter(db) {
     res.json({
       ...sessionToOut(closed),
       issued_voucher: closed.issued_voucher ? voucherToOut(closed.issued_voucher) : null,
+      // true — остаток лёг на прежний чек, код гостю называть не нужно.
+      reused_voucher: Boolean(closed.reused_voucher),
       // Подарочный чек за наигранные часы (акция «каждый N-й час»).
       bonus_voucher: closed.bonus_voucher
         ? { ...voucherToOut(closed.bonus_voucher), bonus_hours: closed.bonus_voucher.bonus_hours }
@@ -638,13 +640,20 @@ export function createApiRouter(db) {
     const session = getSessionById(db, sessionId);
     // Чеки, выданные по итогам этого сеанса: остаток и подарок за
     // наигранные часы печатаются на чеке разными строками.
-    const own = listVouchers(db, { status: "all", limit: 1000 }).filter(
-      (v) => v.source_session_id === session.id
-    );
+    const all = listVouchers(db, { status: "all", limit: 1000 });
+    const own = all.filter((v) => v.source_session_id === session.id);
+    // Если играли по чеку и не доиграли, остаток лёг на ТОТ ЖЕ чек — он
+    // числится за первым сеансом, поэтому ищем его отдельно по сеансу.
+    const reused =
+      session.voucher_id
+        ? all.find(
+            (v) => v.id === session.voucher_id && v.status === "active" && v.balance > 0
+          ) ?? null
+        : null;
     res.json({
       ...sessionToOut(session),
       club_name: getClubSettings(db).club_name,
-      issued_voucher: own.find((v) => v.kind !== "bonus") ?? null,
+      issued_voucher: own.find((v) => v.kind !== "bonus") ?? reused,
       bonus_voucher: own.find((v) => v.kind === "bonus") ?? null,
       orders: listOrders(db, session.id).map((o) => ({
         item_name: o.item_name,

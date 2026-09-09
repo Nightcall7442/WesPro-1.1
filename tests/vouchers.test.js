@@ -8,7 +8,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { adminAgent, createTable, createTariff, makeApp } from "./helpers.js";
+import {
+  adminAgent,
+  createTable,
+  createTariff,
+  developerAgent,
+  makeApp,
+} from "./helpers.js";
 
 /** Сдвигает начало сеанса в прошлое — как будто гость уже поиграл. */
 function playedFor(db, sessionId, minutes) {
@@ -93,10 +99,13 @@ test("по чеку открывается время, новых денег н�
   assert.equal(opened.body.voucher_code, code, "видно, каким чеком оплачено");
   assert.equal(opened.body.paid_by_voucher, 400);
 
-  // Чек списан: второй раз им не сыграть.
+  // Пока гость играет, чек занят: вторым столом по нему не сыграть.
   const used = await admin.get(`/api/vouchers/by-code/${code}`);
   assert.equal(used.body.status, "used");
   assert.equal(used.body.balance, 0);
+
+  // Гость доиграл весь остаток (40 минут из 40) — чек закрывается совсем.
+  playedFor(db, opened.body.id, 40);
   await admin.post(`/api/tables/${table.id}/close`).send({});
   const again = await admin.post(`/api/tables/${table.id}/open`).send({
     tariff_id: tariff.id,
@@ -176,7 +185,7 @@ test("касса сходится: оплата остаётся в ящике, 
   assert.equal(closedShift.body.cash, 600, "наличная выручка — только реальная оплата");
 });
 
-test("не догулял по чеку — выдаётся новый чек на остаток", async () => {
+test("не догулял по чеку — остаток возвращается на ТОТ ЖЕ чек", async () => {
   const { db, app } = makeApp();
   const admin = await adminAgent(app);
   const table = await createTable(admin);
@@ -197,10 +206,19 @@ test("не догулял по чеку — выдаётся новый чек �
   });
   playedFor(db, opened.body.id, 10);
   const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
-  assert.ok(closed.body.issued_voucher, "новый чек выдан");
+  assert.ok(closed.body.issued_voucher, "остаток вернулся чеком");
   assert.equal(closed.body.issued_voucher.balance, 500, "600 − 100 за 10 минут");
-  assert.notEqual(closed.body.issued_voucher.code, firstCode, "новый код");
+  assert.equal(
+    closed.body.issued_voucher.code,
+    firstCode,
+    "код прежний — гостю не надо запоминать новый"
+  );
+  assert.equal(closed.body.reused_voucher, true, "видно, что чек тот же");
   assert.equal(closed.body.total_cost, 0, "выручки нет — деньги были раньше");
+
+  // Ровно одна запись о чеке: цепочка кодов больше не плодится.
+  const rows = db.prepare("SELECT COUNT(*) AS n FROM vouchers").get().n;
+  assert.equal(rows, 1, "в базе один чек, а не цепочка");
 });
 
 test("засиделся по чеку — доплата за перебор", async () => {
@@ -362,4 +380,219 @@ test("чек можно продлить деньгами: остаток счи
 
   const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
   assert.equal(closed.body.issued_voucher.balance, 400);
+});
+
+// --- Один и тот же код чека, пока гость не доиграет ---
+
+test("три круга игры — код чека не меняется, запись одна", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin); // 600 ₽/час → 100 за 10 минут
+
+  const first = await playByAmount(admin, db, table, tariff, { amount: 600, minutes: 0 });
+  const code = first.issued_voucher.code;
+  assert.equal(first.issued_voucher.balance, 600);
+
+  for (const [круг, ожидаемыйОстаток] of [[2, 500], [3, 400], [4, 300]]) {
+    const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+      tariff_id: tariff.id,
+      mode: "voucher",
+      voucher_code: code,
+    });
+    assert.equal(opened.status, 201, `круг ${круг}: открыт по тому же коду`);
+    playedFor(db, opened.body.id, 10);
+    const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+    assert.equal(closed.body.issued_voucher.code, code, `круг ${круг}: код прежний`);
+    assert.equal(
+      closed.body.issued_voucher.balance,
+      ожидаемыйОстаток,
+      `круг ${круг}: остаток уменьшился на сыгранное`
+    );
+  }
+
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS n FROM vouchers").get().n,
+    1,
+    "за все круги — одна запись о чеке"
+  );
+});
+
+test("доиграл всё до копейки — чек закрывается насовсем", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin);
+
+  const first = await playByAmount(admin, db, table, tariff, { amount: 600, minutes: 0 });
+  const code = first.issued_voucher.code;
+
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    mode: "voucher",
+    voucher_code: code,
+  });
+  playedFor(db, opened.body.id, 60); // 600 ₽ = ровно час
+  const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+  assert.equal(closed.body.issued_voucher, null, "возвращать нечего");
+  assert.equal(closed.body.reused_voucher, false);
+
+  const dead = await admin.get(`/api/vouchers/by-code/${code}`);
+  assert.equal(dead.body.status, "used");
+  assert.equal(dead.body.balance, 0);
+});
+
+test("пока гость играет, по тому же чеку второй стол не открыть", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const table = await createTable(admin, "Стол 1");
+  const other = await createTable(admin, "Стол 2");
+  const tariff = await createTariff(admin);
+
+  const first = await playByAmount(admin, db, table, tariff, { amount: 600, minutes: 0 });
+  const code = first.issued_voucher.code;
+  await admin
+    .post(`/api/tables/${table.id}/open`)
+    .send({ tariff_id: tariff.id, mode: "voucher", voucher_code: code });
+
+  const second = await admin
+    .post(`/api/tables/${other.id}/open`)
+    .send({ tariff_id: tariff.id, mode: "voucher", voucher_code: code });
+  assert.equal(second.status, 409, "чек занят открытым сеансом");
+});
+
+test("остаток и подарок за часы: старый код и новый код рядом", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  await admin.put("/api/settings").send({ bonus_every_hours: "1" });
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin);
+  const client = (await admin.post("/api/clients").send({ name: "Марат" })).body;
+
+  const first = await playByAmount(admin, db, table, tariff, {
+    amount: 6000,
+    minutes: 0,
+    clientId: client.id,
+  });
+  const code = first.issued_voucher.code;
+
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+    mode: "voucher",
+    voucher_code: code,
+  });
+  playedFor(db, opened.body.id, 90); // больше часа — сработает подарок
+  const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+
+  assert.equal(closed.body.issued_voucher.code, code, "остаток — на прежнем коде");
+  assert.ok(closed.body.bonus_voucher, "подарок выдан");
+  assert.notEqual(
+    closed.body.bonus_voucher.code,
+    code,
+    "подарок — отдельный чек, в игровой код не схлопывается"
+  );
+  assert.equal(closed.body.bonus_voucher.kind, "bonus");
+});
+
+test("счёт клиента остаётся одним кошельком с одним кодом", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin);
+  const client = (await admin.post("/api/clients").send({ name: "Пётр" })).body;
+
+  const topup = await admin
+    .post(`/api/clients/${client.id}/topup`)
+    .send({ amount: 1000, payment_method: "cash" });
+  const code = topup.body.code;
+
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    client_id: client.id,
+    mode: "voucher",
+    voucher_code: code,
+  });
+  playedFor(db, opened.body.id, 10);
+  const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+
+  assert.equal(closed.body.issued_voucher.code, code, "код счёта не меняется");
+  assert.equal(closed.body.issued_voucher.kind, "topup", "это по-прежнему счёт, а не сдача");
+  assert.equal(closed.body.issued_voucher.client_id, client.id, "счёт остался у клиента");
+
+  const журнал = await admin.get("/api/journal");
+  assert.equal(
+    журнал.body.filter((e) => e.event === "client_topup").length,
+    1,
+    "второго пополнения в журнале нет — отчёт по пополнениям не задваивается"
+  );
+});
+
+test("чек, отменённый во время игры, не воскресает — выдаётся новый", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin);
+
+  const first = await playByAmount(admin, db, table, tariff, { amount: 600, minutes: 0 });
+  const code = first.issued_voucher.code;
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    mode: "voucher",
+    voucher_code: code,
+  });
+  // Кто-то отменил чек в базе, пока гость играл.
+  db.prepare("UPDATE vouchers SET status = 'cancelled' WHERE id = ?").run(
+    first.issued_voucher.id
+  );
+
+  playedFor(db, opened.body.id, 10);
+  const closed = await admin.post(`/api/tables/${table.id}/close`).send({});
+  assert.equal(closed.status, 200, "закрытие стола не падает");
+  assert.ok(closed.body.issued_voucher, "деньги гостя не потеряны");
+  assert.notEqual(closed.body.issued_voucher.code, code, "выдан новый код");
+});
+
+test("печатный чек показывает остаток и после переиспользования кода", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin);
+
+  const first = await playByAmount(admin, db, table, tariff, { amount: 600, minutes: 0 });
+  const code = first.issued_voucher.code;
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    mode: "voucher",
+    voucher_code: code,
+  });
+  playedFor(db, opened.body.id, 10);
+  await admin.post(`/api/tables/${table.id}/close`).send({});
+
+  const receipt = await admin.get(`/api/sessions/${opened.body.id}`);
+  assert.equal(receipt.status, 200);
+  assert.ok(receipt.body.issued_voucher, "на печатном чеке есть строка остатка");
+  assert.equal(receipt.body.issued_voucher.code, code);
+  assert.equal(receipt.body.issued_voucher.balance, 500);
+});
+
+test("доктор не считает переиспользованный чек проблемой", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const dev = await developerAgent(app, db);
+  const table = await createTable(admin);
+  const tariff = await createTariff(admin);
+
+  const first = await playByAmount(admin, db, table, tariff, { amount: 600, minutes: 0 });
+  const opened = await admin.post(`/api/tables/${table.id}/open`).send({
+    tariff_id: tariff.id,
+    mode: "voucher",
+    voucher_code: first.issued_voucher.code,
+  });
+  playedFor(db, opened.body.id, 10);
+  await admin.post(`/api/tables/${table.id}/close`).send({});
+
+  const checkup = await dev.get("/api/support/checkup");
+  const чековые = checkup.body.issues.filter((i) => i.code.startsWith("voucher-"));
+  assert.deepEqual(чековые, [], "ни одной претензии к чекам");
 });

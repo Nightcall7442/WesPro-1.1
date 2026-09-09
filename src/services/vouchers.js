@@ -162,10 +162,9 @@ export function createVoucher(
 }
 
 /**
- * Списывает чек полностью: его остаток уходит в оплату сеанса.
- * Частичное списание намеренно не поддерживается — вместо него при
- * закрытии сеанса выдаётся новый чек на неиспользованную часть, так
- * проще и кассиру, и в отчётах.
+ * Списывает чек целиком на время сеанса: пока гость играет, чек занят и
+ * повторно открыть по нему другой стол нельзя. Если гость не доиграет,
+ * остаток вернётся на ЭТОТ ЖЕ чек при закрытии — см. reissueVoucher.
  * @param {import("node:sqlite").DatabaseSync} db
  * @param {number} voucherId
  * @param {number} sessionId
@@ -182,6 +181,53 @@ export function redeemVoucher(db, voucherId, sessionId) {
      WHERE id = ?`
   ).run(sessionId, utcNow(), voucher.id);
   return getVoucher(db, voucher.id);
+}
+
+/**
+ * Возвращает недоигранный остаток на ТОТ ЖЕ чек: код у гостя не меняется,
+ * сколько бы раз он ни приходил доигрывать. Раньше на каждый круг
+ * выдавался новый код, и гость путался, каким из них платить.
+ *
+ * Правила: код и дата выдачи неприкосновенны; остаток — новый; номинал
+ * не уменьшаем (гость мог доплатить деньгами и увеличить остаток); чек
+ * снова действующий, поэтому отметку о погашении снимаем.
+ *
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {number} voucherId
+ * @param {number} amountKopecks остаток, который возвращается на чек
+ * @param {{sourceSessionId?: number | null,
+ *          user?: {id: number, name: string} | null}} [options]
+ */
+export function reissueVoucher(db, voucherId, amountKopecks, { user = null } = {}) {
+  const voucher = getVoucher(db, voucherId);
+  const amount = Math.round(Number(amountKopecks));
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new ConflictError("Остаток чека должен быть больше нуля");
+  }
+  if (voucher.status === "cancelled") {
+    // Чек отменили, пока гость играл. Воскрешать отменённое нельзя —
+    // вызывающий выдаст новый чек, закрытие стола падать не должно.
+    throw new ConflictError(`Чек ${voucher.code} отменён`);
+  }
+  db.prepare(
+    `UPDATE vouchers
+       SET balance_kopecks = ?,
+           amount_kopecks = MAX(amount_kopecks, ?),
+           status = 'active',
+           redeemed_session_id = NULL,
+           redeemed_at = NULL
+     WHERE id = ?`
+  ).run(amount, amount, voucher.id);
+  const updated = getVoucher(db, voucher.id);
+  logEvent(
+    db,
+    JournalEvent.SESSION_CLOSED,
+    `Остаток ${kopecksToRubles(amount).toFixed(2)} ${getClubSettings(db).currency} ` +
+      `вернулся на чек ${updated.code} (код прежний)` +
+      (updated.client_name ? `, клиент «${updated.client_name}»` : "") +
+      (user ? ` — ${user.name}` : "")
+  );
+  return updated;
 }
 
 /**

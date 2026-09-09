@@ -27,6 +27,7 @@ import { getTariff } from "./tariffs.js";
 import {
   createVoucher,
   redeemVoucher,
+  reissueVoucher,
   requireUsableVoucher,
 } from "./vouchers.js";
 
@@ -659,6 +660,10 @@ export function closeSession(db, tableId, user, { paymentMethod = null } = {}) {
 
   let issuedVoucher = null;
   let bonusVoucher = null;
+  // true — остаток вернулся на прежний чек, а не выдан новый код. Кассиру
+  // это надо сказать другими словами, иначе он продиктует гостю «новый»
+  // код, который на самом деле тот же.
+  let reusedVoucher = false;
 
   withTransaction(db, () => {
     db.prepare(
@@ -678,14 +683,30 @@ export function closeSession(db, tableId, user, { paymentMethod = null } = {}) {
     db.prepare("UPDATE tables SET status = 'free' WHERE id = ?").run(table.id);
 
     // Неиспользованный остаток чека на сумму не возвращаем деньгами —
-    // выдаём чек, по которому гость доиграет в другой день.
+    // выдаём чек, по которому гость доиграет в другой день. Если гость
+    // и так играл по чеку, остаток возвращается на ТОТ ЖЕ код: гостю не
+    // приходится запоминать новый номер после каждого недоигранного раза.
     if (check.voucher_out_kopecks > 0) {
-      issuedVoucher = createVoucher(db, {
-        amountKopecks: check.voucher_out_kopecks,
-        clientId: session.client_id ?? null,
-        sourceSessionId: session.id,
-        user,
-      });
+      if (session.voucher_id) {
+        try {
+          issuedVoucher = reissueVoucher(db, session.voucher_id, check.voucher_out_kopecks, {
+            user,
+          });
+          reusedVoucher = true;
+        } catch {
+          // Чек успели отменить, пока гость играл — деньги гостя не
+          // теряем, выдаём новый. Закрытие стола падать не должно.
+          issuedVoucher = null;
+        }
+      }
+      if (!issuedVoucher) {
+        issuedVoucher = createVoucher(db, {
+          amountKopecks: check.voucher_out_kopecks,
+          clientId: session.client_id ?? null,
+          sourceSessionId: session.id,
+          user,
+        });
+      }
     }
 
     // Подарочные часы считаем после того, как сеанс закрыт: его время
@@ -715,6 +736,8 @@ export function closeSession(db, tableId, user, { paymentMethod = null } = {}) {
   return {
     ...closed,
     issued_voucher: issuedVoucher ?? null,
+    // Остаток вернулся на прежний чек — код у гостя не поменялся.
+    reused_voucher: reusedVoucher,
     bonus_voucher: bonusVoucher ?? null,
   };
 }

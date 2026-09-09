@@ -1764,10 +1764,14 @@ async function openCloseModal(table) {
       if (session.issued_voucher) {
         // Код чека нужно назвать гостю — показываем его отдельным окном,
         // чтобы не потерялся среди уведомлений.
-        showVoucherIssued(session.issued_voucher, () => {
-          openReceipt(session.id, { print: true });
-          if (session.bonus_voucher) showBonusLater(session.bonus_voucher);
-        });
+        showVoucherIssued(
+          session.issued_voucher,
+          () => {
+            openReceipt(session.id, { print: true });
+            if (session.bonus_voucher) showBonusLater(session.bonus_voucher);
+          },
+          { reused: Boolean(session.reused_voucher) }
+        );
       } else if (session.bonus_voucher) {
         // Подарок за наигранные часы: код тоже нужно назвать гостю.
         showVoucherIssued(
@@ -1794,10 +1798,14 @@ async function openCloseModal(table) {
       `${money(check.voucher_out)} не возвращается деньгами — на него будет ` +
       "выдан чек, по нему гость доиграет в другой день.";
   } else if (prepaid && check.voucher_out > 0) {
-    hint.textContent =
-      `Деньги не возвращаем: на остаток ${money(check.voucher_out)} будет ` +
-      "выдан чек — по нему гость доиграет в любой другой день. Код чека " +
-      "появится после закрытия и напечатается на чеке.";
+    hint.textContent = check.voucher_code
+      ? // Играли по чеку — остаток вернётся на него же, новый код гостю
+        // называть не нужно.
+        `Деньги не возвращаем: остаток ${money(check.voucher_out)} вернётся ` +
+        `на тот же чек ${check.voucher_code} — код у гостя не изменится.`
+      : `Деньги не возвращаем: на остаток ${money(check.voucher_out)} будет ` +
+        "выдан чек — по нему гость доиграет в любой другой день. Код чека " +
+        "появится после закрытия и напечатается на чеке.";
   } else if (prepaid && check.change > 0) {
     hint.textContent =
       `Верните гостю ${money(check.change)} — это за неиспользованное ` +
@@ -1890,7 +1898,7 @@ function showBonusLater(voucher) {
  * Окно «выдан чек на остаток»: код нужно назвать гостю и написать на
  * бумажке, поэтому показываем его крупно и отдельно от уведомлений.
  */
-function showVoucherIssued(voucher, onPrint, { bonus = false } = {}) {
+function showVoucherIssued(voucher, onPrint, { bonus = false, reused = false } = {}) {
   const body = document.createElement("div");
 
   const code = document.createElement("p");
@@ -1911,9 +1919,13 @@ function showVoucherIssued(voucher, onPrint, { bonus = false } = {}) {
     ? "Гость наиграл очередные часы — это подарок от клуба. Назовите " +
       "код: по нему он сыграет бесплатно в любой день («Открыть по " +
       "чеку…» в меню стола)."
-    : "Назовите код гостю (он есть и на печатном чеке). По этому чеку он " +
-      "доиграет в любой другой день: «Открыть по чеку…» в меню стола. " +
-      "Деньги за неиспользованное время не возвращаются.";
+    : reused
+      ? "Код тот же, что и был — новый чек гостю не нужен, у него уже есть " +
+        "этот номер. Остаток на нём просто уменьшился. Доиграть можно в " +
+        "любой день: «Открыть по чеку…» в меню стола."
+      : "Назовите код гостю (он есть и на печатном чеке). По этому чеку он " +
+        "доиграет в любой другой день: «Открыть по чеку…» в меню стола. " +
+        "Деньги за неиспользованное время не возвращаются.";
   body.append(hint);
 
   const actions = document.createElement("div");
@@ -1932,7 +1944,14 @@ function showVoucherIssued(voucher, onPrint, { bonus = false } = {}) {
   actions.append(printBtn, laterBtn);
   body.append(actions);
 
-  openModal(bonus ? "Подарок постоянному гостю" : "Выдан чек на остаток", body);
+  openModal(
+    bonus
+      ? "Подарок постоянному гостю"
+      : reused
+        ? "Остаток вернулся на тот же чек"
+        : "Выдан чек на остаток",
+    body
+  );
 }
 
 /**
