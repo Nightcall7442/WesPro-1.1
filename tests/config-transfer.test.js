@@ -142,3 +142,29 @@ test("тариф с историей не удаляется, а выключа�
   const history = await admin.get("/api/history");
   assert.equal(history.body[0].tariff_name, "Старый тариф", "история цела");
 });
+
+test("цена стола переезжает вместе с настройкой", async () => {
+  // Клуб-донор: столу назначен свой тариф.
+  const source = makeApp();
+  const donor = await adminAgent(source.app);
+  const table = await createTable(donor, "Стол у окна");
+  const дневной = await createTariff(donor, "Дневной", 400);
+  await createTariff(donor, "Ночной", 900);
+  await donor.put(`/api/tables/${table.id}/tariffs`).send({ tariff_id: дневной.id });
+
+  const config = (await donor.get("/api/config/export")).body;
+  const exported = config.tables.find((t) => t.name === "Стол у окна");
+  assert.deepEqual(exported.tariff_names, ["Дневной"], "тариф выгружен по имени");
+
+  // Клуб-приёмник: чистая база.
+  const target = makeApp();
+  const receiver = await adminAgent(target.app);
+  const imported = await receiver.post("/api/config/import").send(config);
+  assert.equal(imported.status, 200);
+
+  const dashboard = await receiver.get("/api/dashboard");
+  const row = dashboard.body.find((t) => t.name === "Стол у окна");
+  assert.equal(row.tariff.name, "Дневной", "у стола та же цена, что и в доноре");
+  assert.equal(row.tariff.price_per_hour, 400);
+  assert.equal(row.tariff.assigned, true, "тариф именно закреплён, а не подобран");
+});

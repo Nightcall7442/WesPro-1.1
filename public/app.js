@@ -2824,36 +2824,50 @@ async function renderTableTariffBindings() {
     name.textContent = table.name;
     row.append(name);
 
-    const boxes = document.createElement("div");
-    boxes.className = "table-tariff-boxes";
-    const checkboxes = [];
+    // Один тариф на стол: это его цена, кассир её не выбирает.
+    const select = document.createElement("select");
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "Не назначен (любой активный)";
+    select.append(empty);
     for (const tariff of activeTariffs) {
-      const label = document.createElement("label");
-      label.className = "table-tariff-box";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = (table.allowed_tariff_ids ?? []).includes(tariff.id);
-      box.dataset.tariffId = String(tariff.id);
-      checkboxes.push(box);
-      label.append(box, document.createTextNode(` ${tariff.name}`));
-      boxes.append(label);
+      const option = document.createElement("option");
+      option.value = String(tariff.id);
+      option.textContent = `${tariff.name} — ${tariff.price_per_hour} ${cur()}/час`;
+      select.append(option);
     }
-    boxes.addEventListener("change", async () => {
-      const ids = checkboxes.filter((b) => b.checked).map((b) => Number(b.dataset.tariffId));
+    const assigned = table.allowed_tariff_ids ?? [];
+    select.value = assigned.length === 1 ? String(assigned[0]) : "";
+
+    // Столы с несколькими тарифами (день/ночь по расписанию) настраивались
+    // раньше галочками — такую связку не ломаем, просто показываем как есть.
+    const multi = document.createElement("span");
+    multi.className = "hint";
+    if (assigned.length > 1) {
+      multi.textContent =
+        `Назначено несколько (${assigned.length}) — выбирает расписание. ` +
+        "Выберите один тариф, чтобы закрепить цену.";
+    }
+
+    select.addEventListener("change", async () => {
+      const value = select.value ? [Number(select.value)] : [];
       try {
         await api(`/api/tables/${table.id}/tariffs`, {
           method: "PUT",
-          body: JSON.stringify({ tariff_ids: ids }),
+          body: JSON.stringify({ tariff_ids: value }),
         });
+        multi.textContent = "";
         showToast(
-          ids.length ? "Ограничение сохранено" : "Ограничение снято — доступны все тарифы",
+          value.length
+            ? `${table.name}: тариф закреплён`
+            : `${table.name}: тариф не назначен — возьмётся любой активный`,
           true
         );
       } catch (error) {
         showToast(error.message);
       }
     });
-    row.append(boxes);
+    row.append(select, multi);
     wrap.append(row);
   }
 }
@@ -3384,8 +3398,25 @@ function pricingControls(table, { onChange } = {}) {
     option.textContent = `${tariff.name} — ${tariff.price_per_hour} ${cur()}/час${auto}`;
     tariffSelect.append(option);
   }
-  const preferred = active.find((t) => t.id === state.autoTariffId) ?? active[0];
+  const preferred =
+    active.find((t) => t.id === table?.tariff?.id) ??
+    active.find((t) => t.id === state.autoTariffId) ??
+    active[0];
   if (preferred) tariffSelect.value = String(preferred.id);
+
+  // Цену стола задаёт администратор — кассир только открывает время.
+  // Выбор оставляем лишь тому, кто управляет тарифами, и лишь когда на
+  // столе их правда несколько (например «день/ночь» по расписанию).
+  const canChooseTariff = can("manage_tariffs") && active.length > 1;
+  const tariffLine = document.createElement("div");
+  tariffLine.className = "table-tariff-line";
+  const showTariffLine = () => {
+    const shown = preferred;
+    tariffLine.textContent = shown
+      ? `${shown.name} — ${shown.price_per_hour} ${cur()}/час`
+      : "Тариф столу не назначен";
+  };
+  showTariffLine();
 
   const clientInput = document.createElement("input");
   clientInput.type = "text";
@@ -3399,7 +3430,9 @@ function pricingControls(table, { onChange } = {}) {
   clientNote.className = "hint";
 
   const read = () => {
-    const tariff = state.tariffs.find((t) => t.id === Number(tariffSelect.value));
+    const tariff = canChooseTariff
+      ? state.tariffs.find((t) => t.id === Number(tariffSelect.value))
+      : preferred;
     const clientId = clientIdFromInput(clientInput.value);
     const client = state.clients.find((c) => c.id === clientId);
     // Скидка клиента и акция не складываются — считаем по бо́льшей,
@@ -3449,7 +3482,10 @@ function pricingControls(table, { onChange } = {}) {
   clientInput.addEventListener("change", notify);
   clientInput.addEventListener("input", notify);
 
-  wrap.append(makeField("Тариф", tariffSelect), makeField("Клиент", clientInput));
+  wrap.append(
+    makeField("Тариф", canChooseTariff ? tariffSelect : tariffLine),
+    makeField("Клиент", clientInput)
+  );
   const box = document.createElement("div");
   box.append(wrap, clientNote);
   // Действующую акцию показываем сразу, ещё до выбора клиента.

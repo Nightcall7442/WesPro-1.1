@@ -21,7 +21,8 @@ import { getLightingController } from "./lighting.js";
 import { activePromotion } from "./promotions.js";
 import { getClubSettings, getSettings } from "./settings.js";
 import { requireShiftFor } from "./shifts.js";
-import { getAllowedTariffIds, getTable } from "./tables.js";
+import { getAllowedTariffIds, getTable, resolveTableTariffId } from "./tables.js";
+import { resolveTariffId } from "./tariff-rules.js";
 import { getTariff } from "./tariffs.js";
 import {
   createVoucher,
@@ -206,7 +207,8 @@ function getSession(db, sessionId) {
  * Открывает сеанс: стол занят, свет включён, событие в журнале.
  * @param {import("node:sqlite").DatabaseSync} db
  * @param {number} tableId
- * @param {number} tariffId
+ * @param {number | null} tariffId тариф; null — взять тариф, назначенный
+ *   столу администратором (кассир тариф не выбирает, он открывает время)
  * @param {{id: number, name: string, role: string}} user кто открывает
  * @param {{clientId?: number | null,
  *          prepaidSeconds?: number | null,
@@ -235,7 +237,18 @@ export function openSession(
   } = {}
 ) {
   const table = getTable(db, tableId);
-  const tariff = getTariff(db, tariffId);
+  const club = getClubSettings(db);
+  // Тариф не передали — берём тот, что назначен столу: кассир открывает
+  // время, а цену стола задаёт администратор.
+  const effectiveTariffId =
+    tariffId ??
+    resolveTableTariffId(db, table.id, resolveTariffId(db, club.tz_offset_minutes));
+  if (effectiveTariffId === null || effectiveTariffId === undefined) {
+    throw new ConflictError(
+      `Столу «${table.name}» не назначен тариф — задайте его в «Зоны и тарифы»`
+    );
+  }
+  const tariff = getTariff(db, effectiveTariffId);
   if (!tariff.is_active) {
     throw new ConflictError(`Тариф «${tariff.name}» отключён`);
   }
@@ -249,7 +262,6 @@ export function openSession(
     throw new ConflictError(`Стол «${table.name}» уже занят`);
   }
   const shiftId = requireShiftFor(db, user);
-  const club = getClubSettings(db);
   const client = clientId ? getClient(db, clientId) : null;
   // Скидка клиента и акция «счастливый час» не складываются — берём
   // бо́льшую. Скидка фиксируется на весь сеанс: акция может кончиться

@@ -230,25 +230,84 @@ export function getAllowedTariffIds(db, tableId) {
 
 /**
  * Задаёт список тарифов, доступных для выбора на конкретном столе.
+ * Обычно это один тариф — «цена этого стола», её назначает администратор,
+ * а кассир потом просто открывает время. Несколько тарифов оставлены для
+ * случая «днём одна цена, ночью другая»: выбрать нужный поможет расписание.
  * Пустой список снимает ограничение (снова доступны все активные тарифы).
  * @param {import("node:sqlite").DatabaseSync} db
  * @param {number} tableId
  * @param {number[]} tariffIds
+ * @param {{id: number, name: string} | null} [user] кто менял — для журнала
  */
-export function setAllowedTariffIds(db, tableId, tariffIds) {
-  getTable(db, tableId); // бросит NotFoundError, если стола нет
+export function setAllowedTariffIds(db, tableId, tariffIds, user = null) {
+  const table = getTable(db, tableId); // бросит NotFoundError, если стола нет
   const ids = [...new Set(tariffIds)];
   for (const id of ids) {
     if (!Number.isInteger(id)) {
       throw new ConflictError("Список тарифов должен содержать целые id");
     }
   }
+  const before = getAllowedTariffIds(db, tableId);
   withTransaction(db, () => {
     db.prepare("DELETE FROM table_tariffs WHERE table_id = ?").run(tableId);
     const insert = db.prepare(
       "INSERT INTO table_tariffs (table_id, tariff_id) VALUES (?, ?)"
     );
     for (const tariffId of ids) insert.run(tableId, tariffId);
+
+    // Цена стола — деньги, поэтому смена видна владельцу в журнале.
+    const changed = before.join(",") !== ids.join(",");
+    if (changed) {
+      const names = ids.length
+        ? ids
+            .map(
+              (id) =>
+                db.prepare("SELECT name FROM tariffs WHERE id = ?").get(id)?.name ??
+                `id=${id}`
+            )
+            .map((name) => `«${name}»`)
+            .join(", ")
+        : "любой активный тариф";
+      logEvent(
+        db,
+        JournalEvent.TARIFF_UPDATED,
+        `Столу «${table.name}» назначен тариф: ${names}` +
+          (user ? ` — ${user.name}` : ""),
+        { tableId: table.id }
+      );
+    }
   });
   return getAllowedTariffIds(db, tableId);
+}
+
+/**
+ * Тариф стола: тот, что назначил администратор. Если столу назначен ровно
+ * один тариф — это и есть его цена, выбирать кассиру нечего. Если назначено
+ * несколько или ничего — решает расписание (autoTariffId), а в крайнем
+ * случае берётся первый активный тариф клуба.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {number} tableId
+ * @param {number | null} [autoTariffId] тариф по расписанию на сейчас
+ * @returns {number | null} id тарифа или null, если тарифов в клубе нет
+ */
+export function resolveTableTariffId(db, tableId, autoTariffId = null) {
+  const allowed = getAllowedTariffIds(db, tableId);
+  const isActive = (id) =>
+    id !== null &&
+    id !== undefined &&
+    db.prepare("SELECT is_active FROM tariffs WHERE id = ?").get(id)?.is_active === 1;
+
+  if (allowed.length === 1 && isActive(allowed[0])) return allowed[0];
+  if (allowed.length > 1) {
+    // Несколько тарифов на столе: расписание выбирает из них.
+    if (allowed.includes(autoTariffId) && isActive(autoTariffId)) return autoTariffId;
+    const firstActive = allowed.find((id) => isActive(id));
+    if (firstActive !== undefined) return firstActive;
+  }
+  if (isActive(autoTariffId)) return autoTariffId;
+  return (
+    db
+      .prepare("SELECT id FROM tariffs WHERE is_active = 1 ORDER BY id LIMIT 1")
+      .get()?.id ?? null
+  );
 }

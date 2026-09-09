@@ -56,12 +56,28 @@ export function exportConfig(db) {
          FROM promotions ORDER BY id`
       )
       .all(),
+    // Тарифы стола выгружаем ПО ИМЕНИ: id в новой базе будут другие, а
+    // без этой привязки перенос настройки оставит столы без цены.
     tables: db
       .prepare(
-        `SELECT name, kind, pos_x, pos_y, size_w, size_h
-         FROM tables WHERE is_active = 1 ORDER BY id`
+        `SELECT t.id, t.name, t.kind, t.pos_x, t.pos_y, t.size_w, t.size_h
+         FROM tables t WHERE t.is_active = 1 ORDER BY t.id`
       )
-      .all(),
+      .all()
+      .map((table) => {
+        const { id, ...rest } = table;
+        return {
+          ...rest,
+          tariff_names: db
+            .prepare(
+              `SELECT tf.name FROM table_tariffs tt
+               JOIN tariffs tf ON tf.id = tt.tariff_id
+               WHERE tt.table_id = ? ORDER BY tf.id`
+            )
+            .all(id)
+            .map((r) => r.name),
+        };
+      }),
     plan_elements: db
       .prepare("SELECT type, x, y, w, h FROM plan_elements ORDER BY id")
       .all(),
@@ -254,6 +270,23 @@ export function importConfig(db, data, user) {
             table.size_h ?? 3,
             utcNow()
           );
+        }
+
+        // Возвращаем цену стола: тарифы уже загружены выше, ищем их по
+        // имени — id в этой базе свои.
+        if (Array.isArray(table.tariff_names) && table.tariff_names.length) {
+          const tableId = db
+            .prepare("SELECT id FROM tables WHERE name = ?")
+            .get(String(table.name)).id;
+          const link = db.prepare(
+            "INSERT INTO table_tariffs (table_id, tariff_id) VALUES (?, ?)"
+          );
+          for (const tariffName of table.tariff_names) {
+            const tariff = db
+              .prepare("SELECT id FROM tariffs WHERE name = ?")
+              .get(String(tariffName));
+            if (tariff) link.run(tableId, tariff.id);
+          }
         }
         applied.tables += 1;
       }

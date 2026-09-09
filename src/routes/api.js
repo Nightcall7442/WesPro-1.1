@@ -113,11 +113,18 @@ import {
   deleteTable,
   getAllowedTariffIds,
   listTables,
+  resolveTableTariffId,
   setAllowedTariffIds,
   setTableDevice,
   setTableLayout,
 } from "../services/tables.js";
-import { createTariff, deleteTariff, listTariffs, updateTariff } from "../services/tariffs.js";
+import {
+  createTariff,
+  deleteTariff,
+  getTariff,
+  listTariffs,
+  updateTariff,
+} from "../services/tariffs.js";
 import {
   authenticate,
   changeOwnPassword,
@@ -463,17 +470,22 @@ export function createApiRouter(db) {
     requirePermission(db, req, "manage_tables");
     const tableId = intParam(req.params.id);
     if (tableId === null) return res.status(404).json({ detail: "Стол не найден" });
-    const ids = Array.isArray(req.body?.tariff_ids) ? req.body.tariff_ids.map(Number) : [];
-    res.json({ tariff_ids: setAllowedTariffIds(db, tableId, ids) });
+    // Принимаем и один тариф («цена стола»), и список — так удобнее и
+    // интерфейсу, и старым клиентам API.
+    const raw = req.body?.tariff_ids ?? req.body?.tariff_id;
+    const ids = (Array.isArray(raw) ? raw : raw === null || raw === undefined ? [] : [raw])
+      .map(Number)
+      .filter((id) => Number.isInteger(id));
+    res.json({ tariff_ids: setAllowedTariffIds(db, tableId, ids, req.user) });
   });
 
   router.post("/tables/:id/open", (req, res) => {
     const tableId = intParam(req.params.id);
+    // Тариф необязателен: кассир открывает время, а цену берём с самого
+    // стола (её назначает администратор). Переданный тариф по-прежнему
+    // принимается — им пользуются администратор и старые клиенты API.
     const tariffId = intParam(req.body?.tariff_id);
     if (tableId === null) return res.status(404).json({ detail: "Стол не найден" });
-    if (tariffId === null) {
-      throw new ConflictError("Поле tariff_id обязательно и должно быть числом");
-    }
     const clientId = intParam(req.body?.client_id);
     // Режимы: postpaid (по умолчанию), time (минуты вперёд), amount (сумма),
     // free (бесплатное время — отдельное право).
@@ -712,15 +724,30 @@ export function createApiRouter(db) {
   router.get("/dashboard", (req, res) => {
     const lighting = getLightingController();
     const now = Date.now();
+    // Тариф по расписанию считаем один раз на весь дашборд, а не на стол.
+    const autoTariffId = resolveTariffId(db, getClubSettings(db).tz_offset_minutes);
     const result = listTables(db).map((table) => {
       const session = getOpenSession(db, table.id);
       const booking = nextBookingForTable(db, table.id);
+      // Цена этого стола: её назначает администратор, кассир только
+      // открывает время — поэтому отдаём готовый тариф, а не список.
+      const tariffId = resolveTableTariffId(db, table.id, autoTariffId);
+      const tariff = tariffId ? getTariff(db, tariffId) : null;
       return {
         id: table.id,
         name: table.name,
         status: table.status,
         kind: table.kind,
         allowed_tariff_ids: getAllowedTariffIds(db, table.id),
+        tariff: tariff
+          ? {
+              id: tariff.id,
+              name: tariff.name,
+              price_per_hour: tariff.price_per_hour,
+              // true — тариф закреплён за столом администратором.
+              assigned: getAllowedTariffIds(db, table.id).length > 0,
+            }
+          : null,
         light_on: lighting.isLightOn(table.id),
         pos_x: table.pos_x,
         pos_y: table.pos_y,
