@@ -284,6 +284,26 @@ test("кабинет в сети показывает кнопку «Откры�
   assert.equal(view.body.network, true);
 });
 
+test("после регистрации в сети везут сразу в программу", async (t) => {
+  const { app } = makeNetwork(t);
+  const agent = supertest.agent(app);
+  const registered = await agent.post("/account/api/register").send({
+    name: "Первый",
+    owner_name: "Иван Иванов",
+    email: "one@example.com",
+    password: PASSWORD,
+  });
+  assert.equal(registered.status, 201);
+  assert.equal(registered.body.next, "/account/open");
+
+  // И этот адрес действительно открывает программу вошедшим владельцем.
+  const opened = await agent.get(registered.body.next).redirects(0);
+  assert.equal(opened.status, 302);
+  const me = await agent.get("/api/auth/me");
+  assert.equal(me.status, 200);
+  assert.equal(me.body.club_name, "Первый");
+});
+
 test("у каждого клуба свой файл базы", async (t) => {
   const { hubDb, app, dir } = makeNetwork(t);
   await registerAndOpen(app, { name: "Первый", email: "one@example.com" });

@@ -101,13 +101,15 @@
             password: document.getElementById("password").value,
           }),
         });
+        const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
           errorBox.textContent = body.detail ?? "Не удалось зарегистрироваться";
           submitBtn.disabled = false;
           return;
         }
-        window.location.href = "/account";
+        // Клуб только что завели — везём сразу в программу, а не в
+        // кабинет: подписку смотреть пока не за чем, а работать хочется.
+        window.location.href = body.next ?? "/account";
       } catch (err) {
         errorBox.textContent = "Сервер недоступен";
         submitBtn.disabled = false;

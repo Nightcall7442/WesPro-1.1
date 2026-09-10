@@ -188,6 +188,19 @@ test("смена пароля требует верный старый паро�
   assert.equal(newLogin.status, 200);
 });
 
+test("в обычной установке после регистрации ведут в кабинет", async () => {
+  const { app } = makeHub();
+  const registered = await supertest(app).post("/account/api/register").send({
+    name: "Клуб Азиза",
+    owner_name: "Азиз Ахмедов",
+    email: "aziz2@example.com",
+    password: "password1",
+  });
+  assert.equal(registered.status, 201);
+  // Программа тут стоит на компьютере клуба — вести в неё с сайта некуда.
+  assert.equal(registered.body.next, "/account");
+});
+
 test("в обычной установке кабинет не зовёт «Открыть программу»", async () => {
   const { app } = makeHub();
   const { agent } = await registerAgent(app);

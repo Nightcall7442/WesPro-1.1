@@ -34,7 +34,10 @@ export function createAccountRouter(hubDb, { openProgram = null, onPasswordChang
   router.post("/api/register", (req, res) => {
     const club = registerClub(hubDb, req.body ?? {});
     res.setHeader("Set-Cookie", accountSessionCookie(createClubSession(hubDb, club.id)));
-    res.status(201).json(club);
+    // next — куда вести дальше. Клуб только что завели: если программа
+    // живёт на этом же сервере, работать можно прямо сейчас, и держать
+    // человека в кабинете незачем.
+    res.status(201).json({ ...club, next: openProgram ? "/account/open" : "/account" });
   });
 
   router.post("/api/login", (req, res) => {
