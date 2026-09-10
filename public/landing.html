@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WesPro — система управления бильярдным клубом</title>
+  <meta name="description" content="WesPro: касса, столы и тарифы, клиенты, сотрудники и сеть клубов в одной программе. Работает на компьютере клуба — без интернета данные никуда не денутся.">
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    onload="this.onload=null;this.rel='stylesheet'">
+  <script>
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("billiards_theme") === "dark" ? "dark" : "light";
+    } catch (e) {
+      document.documentElement.dataset.theme = "light";
+    }
+  </script>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/landing.css">
+</head>
+<body class="landing">
+
+  <header class="landing-top">
+    <a class="landing-logo" href="/about">WesPro<span>система для клубов</span></a>
+    <nav class="landing-nav">
+      <a href="#for-whom">Для кого</a>
+      <a href="#features">Возможности</a>
+      <a href="#network">Сеть клубов</a>
+      <a href="#contact">Контакты</a>
+    </nav>
+    <div class="landing-top-actions">
+      <button id="theme-toggle" class="btn btn-ghost" title="Тёмная/светлая тема" aria-label="Сменить тему">
+        <i class="ic ic-theme" aria-hidden="true"></i>
+      </button>
+      <a class="btn btn-primary" href="/login">Войти</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- Герой -->
+    <section class="landing-container hero">
+      <div>
+        <span class="hero-eyebrow">Для бильярдных и игровых клубов</span>
+        <h1>Управляйте клубом,<br>а не <em>бумагами</em></h1>
+        <p class="hero-sub">
+          Касса, столы и тарифы, клиенты, сотрудники и сеть клубов —
+          в одной программе. Стоит на компьютере клуба, поэтому играет
+          и считает деньги даже без интернета, а данные остаются у вас.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary btn-lg" href="/login">Войти в систему</a>
+          <a class="btn btn-ghost btn-lg" href="#contact">Обсудить внедрение</a>
+        </div>
+        <div class="hero-badges">
+          <span class="hero-badge"><i class="ic ic-check" aria-hidden="true"></i>Работает без интернета</span>
+          <span class="hero-badge"><i class="ic ic-check" aria-hidden="true"></i>Данные на вашем компьютере</span>
+          <span class="hero-badge"><i class="ic ic-check" aria-hidden="true"></i>Русский интерфейс</span>
+        </div>
+      </div>
+
+      <!-- Декоративный превью дашборда: не скриншот, а стилизация -->
+      <div class="hero-mock" aria-hidden="true">
+        <div class="mock-bar">
+          <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot"></span>
+          <span class="mock-title">Карта зала</span>
+        </div>
+        <div class="mock-grid">
+          <div class="mock-tile busy"><b>Стол 1</b><span>00:42:10</span></div>
+          <div class="mock-tile free"><b>Стол 2</b><span>Свободен</span></div>
+          <div class="mock-tile prepaid"><b>Стол 3</b><span>Осталось 18 мин</span></div>
+          <div class="mock-tile free"><b>Стол 4</b><span>Свободен</span></div>
+          <div class="mock-tile busy"><b>Стол 5</b><span>01:05:44</span></div>
+          <div class="mock-tile free"><b>Стол 6</b><span>Свободен</span></div>
+        </div>
+        <div class="mock-stats">
+          <div class="mock-stat"><b>3 / 6</b><span>занято сейчас</span></div>
+          <div class="mock-stat"><b>612 000</b><span>выручка смены</span></div>
+          <div class="mock-stat"><b>+180 000</b><span>расхождения 0</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Для кого -->
+    <section id="for-whom" class="section landing-container">
+      <div class="section-head">
+        <div class="section-eyebrow">Для кого</div>
+        <h2>Одна программа — разная польза для каждого</h2>
+        <p>Права и вкладки настраиваются под роль, поэтому каждый видит только то, что нужно ему для работы.</p>
+      </div>
+      <div class="audience-grid">
+        <div class="audience-card">
+          <div class="audience-icon"><i class="ic ic-person" aria-hidden="true"></i></div>
+          <h3>Владелец клуба</h3>
+          <p>Видит всё, даже когда его нет в клубе: выручку по дням и способам оплаты, расхождения в кассе, кто и когда работал. Гибкие права не дают сотрудникам того, что им не нужно.</p>
+        </div>
+        <div class="audience-card">
+          <div class="audience-icon"><i class="ic ic-sliders" aria-hidden="true"></i></div>
+          <h3>Администратор и управляющий</h3>
+          <p>Настраивает тарифы, зал, акции и сотрудников. Может открыть или закрыть стол даже без своей кассовой смены — удобно, когда нужно быстро разобраться на месте.</p>
+        </div>
+        <div class="audience-card">
+          <div class="audience-icon"><i class="ic ic-card" aria-hidden="true"></i></div>
+          <h3>Кассир</h3>
+          <p>Простая карта зала: открыть стол, закрыть, посчитать чек — в пару кликов. Кассовая смена с пересдачей сама считает расхождение, запутаться в наличных сложно.</p>
+        </div>
+        <div class="audience-card">
+          <div class="audience-icon"><i class="ic ic-chart" aria-hidden="true"></i></div>
+          <h3>Владелец сети клубов</h3>
+          <p>Отдельная панель для нескольких точек сразу: кто заплатил за подписку, кто просрочил, автоблокировка неплательщиков и рассылка сообщений всей сети разом.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Возможности -->
+    <section id="features" class="section section-alt">
+      <div class="landing-container">
+        <div class="section-head">
+          <div class="section-eyebrow">Возможности</div>
+          <h2>Всё, что нужно клубу день за днём</h2>
+          <p>От карты зала до зарплаты сотрудников — без сторонних сервисов и таблиц Excel.</p>
+        </div>
+
+        <div class="feature-group">
+          <div class="feature-group-head">
+            <div class="feature-group-icon"><i class="ic ic-ball" aria-hidden="true"></i></div>
+            <div>
+              <h3>Зал и сеансы</h3>
+              <p>Карта столов с живым таймером вместо бумажного журнала</p>
+            </div>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-item"><b><i class="ic ic-clock" aria-hidden="true"></i>Живой таймер</b><p>На карте зала сразу видно, сколько стол уже играет и сколько времени осталось до конца оплаченного.</p></div>
+            <div class="feature-item"><b><i class="ic ic-timer" aria-hidden="true"></i>Четыре способа открыть стол</b><p>Постоплата, оплата за время вперёд, чек на фиксированную сумму или игра по ранее выданному чеку.</p></div>
+            <div class="feature-item"><b><i class="ic ic-play" aria-hidden="true"></i>Продление без потери истории</b><p>«Ещё 30 минут» одной кнопкой — стол не закрывается и не открывается заново.</p></div>
+            <div class="feature-item"><b><i class="ic ic-move" aria-hidden="true"></i>Пересадка гостей</b><p>Переносит сеанс на другой стол вместе с оплатой, баром и таймером.</p></div>
+            <div class="feature-item"><b><i class="ic ic-calendar" aria-hidden="true"></i>Брони</b><p>Если стол забронирован, кассир увидит предупреждение прямо при попытке его открыть.</p></div>
+            <div class="feature-item"><b><i class="ic ic-tag" aria-hidden="true"></i>Тарифные расписания</b><p>«Счастливый час», день/ночь — тариф меняется сам по расписанию, без ручной правки цен.</p></div>
+          </div>
+        </div>
+
+        <div class="feature-group">
+          <div class="feature-group-head">
+            <div class="feature-group-icon"><i class="ic ic-card" aria-hidden="true"></i></div>
+            <div>
+              <h3>Касса и оплата</h3>
+              <p>Деньги считаются один раз и не теряются при недоигранном времени</p>
+            </div>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-item"><b><i class="ic ic-card" aria-hidden="true"></i>Наличные, карта, перевод</b><p>Способ оплаты фиксируется на каждом чеке и учитывается в отчёте смены отдельными суммами.</p></div>
+            <div class="feature-item"><b><i class="ic ic-person" aria-hidden="true"></i>Счёт клиента</b><p>Гость пополняет счёт заранее — дальше деньги списываются сами, в первую очередь со счёта.</p></div>
+            <div class="feature-item"><b><i class="ic ic-tag" aria-hidden="true"></i>Чек на остаток</b><p>Недоигранное время не сгорает, а превращается в чек с коротким кодом — доиграть можно в другой день.</p></div>
+            <div class="feature-item"><b><i class="ic ic-gift" aria-hidden="true"></i>Скидки и акции</b><p>Скидка клиента фиксируется на весь сеанс, даже если акция закончится посреди игры.</p></div>
+            <div class="feature-item"><b><i class="ic ic-doc" aria-hidden="true"></i>Печать чека</b><p>Лента 58 или 80&nbsp;мм — макет чека подгоняется под ширину принтера автоматически.</p></div>
+          </div>
+        </div>
+
+        <div class="feature-group">
+          <div class="feature-group-head">
+            <div class="feature-group-icon"><i class="ic ic-clock" aria-hidden="true"></i></div>
+            <div>
+              <h3>Кассовые смены</h3>
+              <p>Пересдача кассы без «сходится — не сходится» на глаз</p>
+            </div>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-item"><b><i class="ic ic-check" aria-hidden="true"></i>Открытие и закрытие смены</b><p>Кассир вводит фактические наличные — система сама считает расчётную сумму и расхождение.</p></div>
+            <div class="feature-item"><b><i class="ic ic-chart" aria-hidden="true"></i>X- и Z-отчёты</b><p>Сводка по смене в любой момент и печатный отчёт при закрытии — без пересчёта на бумажке.</p></div>
+            <div class="feature-item"><b><i class="ic ic-card" aria-hidden="true"></i>Выдача и внесение денег</b><p>Каждое движение — с причиной, попадает в журнал и сразу учитывается в расчёте кассы.</p></div>
+            <div class="feature-item"><b><i class="ic ic-calendar" aria-hidden="true"></i>Календарь смен</b><p>Фильтр по кассиру и дате — видно, чья смена была в конкретный день, без опроса сотрудников.</p></div>
+          </div>
+        </div>
+
+        <div class="feature-group">
+          <div class="feature-group-head">
+            <div class="feature-group-icon"><i class="ic ic-gift" aria-hidden="true"></i></div>
+            <div>
+              <h3>Клиенты и лояльность</h3>
+              <p>Постоянные гости запоминаются программой, а не кассиром на память</p>
+            </div>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-item"><b><i class="ic ic-people" aria-hidden="true"></i>База клиентов</b><p>Имя и телефон — скидка клиента подставляется сама при выборе его на карте зала.</p></div>
+            <div class="feature-item"><b><i class="ic ic-chart" aria-hidden="true"></i>Статистика клиента</b><p>Визиты, средний чек и время игры за день, неделю, месяц и за всё время — по одному клику.</p></div>
+            <div class="feature-item"><b><i class="ic ic-gift" aria-hidden="true"></i>Подарочные часы</b><p>«Каждый N-й час в подарок» начисляется автоматически, без ручного учёта посещений.</p></div>
+          </div>
+        </div>
+
+        <div class="feature-group">
+          <div class="feature-group-head">
+            <div class="feature-group-icon"><i class="ic ic-person" aria-hidden="true"></i></div>
+            <div>
+              <h3>Сотрудники и права</h3>
+              <p>Каждый видит и может ровно то, что положено его роли</p>
+            </div>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-item"><b><i class="ic ic-sliders" aria-hidden="true"></i>Пять ролей</b><p>Разработчик, владелец, управляющий, администратор, кассир — с разумными правами по умолчанию.</p></div>
+            <div class="feature-item"><b><i class="ic ic-check" aria-hidden="true"></i>Тонкая настройка прав</b><p>Владелец решает, какая вкладка кому видна и какие кнопки доступны — вплоть до отдельного права.</p></div>
+            <div class="feature-item"><b><i class="ic ic-chart" aria-hidden="true"></i>Зарплата</b><p>Ставка за час плюс процент от выручки считается сама по кассовым сменам сотрудника.</p></div>
+          </div>
+        </div>
+
+        <div class="feature-group">
+          <div class="feature-group-head">
+            <div class="feature-group-icon"><i class="ic ic-bulb" aria-hidden="true"></i></div>
+            <div>
+              <h3>Зал и оборудование</h3>
+              <p>Программа управляет не только цифрами, но и самим залом</p>
+            </div>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-item"><b><i class="ic ic-bulb" aria-hidden="true"></i>Свет над столом</b><p>Включается и выключается сам вместе с сеансом — реле Tuya/MOES, Tasmota, Shelly или свой адрес.</p></div>
+            <div class="feature-item"><b><i class="ic ic-sliders" aria-hidden="true"></i>Редактор зала</b><p>Столы, стены и мебель расставляются как в реальном помещении — план виден сразу на карте.</p></div>
+            <div class="feature-item"><b><i class="ic ic-tv" aria-hidden="true"></i>Экран для гостей</b><p>Отдельная страница на телевизор в зале: свободные столы и цены, без входа в систему.</p></div>
+          </div>
+        </div>
+
+        <div class="feature-group">
+          <div class="feature-group-head">
+            <div class="feature-group-icon"><i class="ic ic-database" aria-hidden="true"></i></div>
+            <div>
+              <h3>Надёжность</h3>
+              <p>«Полетел компьютер» не должно означать «потеряли данные клуба»</p>
+            </div>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-item"><b><i class="ic ic-download" aria-hidden="true"></i>Резервная копия каждый день</b><p>Программа сама копирует базу раз в сутки, без участия человека.</p></div>
+            <div class="feature-item"><b><i class="ic ic-check" aria-hidden="true"></i>Доктор данных</b><p>Находит расхождения, из-за которых отчёты могут врать, и чинит их по кнопке.</p></div>
+            <div class="feature-item"><b><i class="ic ic-list" aria-hidden="true"></i>Журнал событий</b><p>Кто, что и когда сделал в системе — открыл стол, изменил тариф, выдал деньги из кассы.</p></div>
+            <div class="feature-item"><b><i class="ic ic-doc" aria-hidden="true"></i>Диагностика одной кнопкой</b><p>Пакет для техподдержки собирается сам — версия, ошибки, состояние базы, без переписки «пришлите логи».</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Сеть клубов -->
+    <section id="network" class="section landing-container">
+      <div class="network-panel">
+        <div>
+          <span class="hero-eyebrow">Для сети из нескольких точек</span>
+          <h2>Одна панель на все клубы сети</h2>
+          <p>
+            Каждый клуб по-прежнему работает на своей программе — так же
+            надёжно и без интернета. А владелец сети получает отдельную
+            панель поверх всех точек: кто заплатил за подписку, кто
+            просрочил, кто вообще пропал со связи.
+          </p>
+          <a class="btn btn-ghost" href="/hub">Открыть панель сети →</a>
+        </div>
+        <ul class="network-list">
+          <li>
+            <i class="ic ic-check" aria-hidden="true"></i>
+            <span><b>Своя база и свой вход</b><span>Сотрудник клуба не попадёт в панель сети, а владелец сервиса — в кассу клуба.</span></span>
+          </li>
+          <li>
+            <i class="ic ic-check" aria-hidden="true"></i>
+            <span><b>Автоблокировка при просрочке</b><span>Статус считается из дат, а не хранится «на честном слове» — оплатил, и клуб сам снова работает.</span></span>
+          </li>
+          <li>
+            <i class="ic ic-check" aria-hidden="true"></i>
+            <span><b>История оплат</b><span>Сумма, срок, чем платили — оплата продлевает подписку, не съедая уже оплаченные дни.</span></span>
+          </li>
+          <li>
+            <i class="ic ic-check" aria-hidden="true"></i>
+            <span><b>Сообщения клубам</b><span>Одному клубу или всей сети сразу — сообщение дождётся клуба, даже если тот сейчас выключен.</span></span>
+          </li>
+          <li>
+            <i class="ic ic-check" aria-hidden="true"></i>
+            <span><b>Вход для поддержки с журналом</b><span>Одноразовый ключ на 30 минут с обязательной причиной — постоянного доступа в чужой клуб нет ни у кого.</span></span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Почему WesPro -->
+    <section class="section section-alt">
+      <div class="landing-container">
+        <div class="section-head center" style="margin-left:auto;margin-right:auto;">
+          <div class="section-eyebrow">Почему WesPro</div>
+          <h2>Сделано для реальной работы клуба</h2>
+        </div>
+        <div class="why-grid">
+          <div class="why-item">
+            <div class="ic-wrap"><i class="ic ic-bulb" aria-hidden="true"></i></div>
+            <h3>Работает без интернета</h3>
+            <p>Программа стоит на компьютере клуба. Пропал Wi-Fi — стол всё равно открывается, касса всё равно считает.</p>
+          </div>
+          <div class="why-item">
+            <div class="ic-wrap"><i class="ic ic-database" aria-hidden="true"></i></div>
+            <h3>Данные остаются у вас</h3>
+            <p>База клуба — файл на вашем компьютере. Никуда не утекает, копируется сама каждый день.</p>
+          </div>
+          <div class="why-item">
+            <div class="ic-wrap"><i class="ic ic-chart" aria-hidden="true"></i></div>
+            <h3>От одного зала до сети</h3>
+            <p>Один клуб работает как есть. Десять клубов управляются из одной панели, без хаоса в отчётах.</p>
+          </div>
+          <div class="why-item">
+            <div class="ic-wrap"><i class="ic ic-person" aria-hidden="true"></i></div>
+            <h3>Понятный интерфейс</h3>
+            <p>Русский язык, простые формулировки, подсказки по месту — обучать кассира приходится один раз.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Контакты -->
+    <section id="contact" class="section landing-container">
+      <div class="cta-panel">
+        <h2>Хотите такую систему в своём клубе?</h2>
+        <p>Расскажем, как перенести настройки клуба и подключить оборудование, поможем с первым запуском.</p>
+        <div class="cta-actions">
+          <a class="btn btn-primary btn-lg" href="/login">Войти в систему</a>
+          <a class="btn btn-ghost btn-lg" href="/hub">Панель сети клубов</a>
+        </div>
+        <div class="contact-row">
+          <!-- ЗАМЕНИТЕ на настоящие контакты перед публикацией -->
+          <span>Телефон: <span class="placeholder">впишите номер</span></span>
+          <span>Telegram: <span class="placeholder">впишите @аккаунт</span></span>
+          <span>Email: <span class="placeholder">впишите почту</span></span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="landing-footer">
+    <div class="landing-container footer-row">
+      <span class="footer-copy">© WesPro — система управления клубами</span>
+      <nav class="footer-links">
+        <a href="/login">Вход для сотрудников</a>
+        <a href="/hub">Панель сети клубов</a>
+        <a href="/board">Экран для гостей</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="/static/landing.js"></script>
+</body>
+</html>

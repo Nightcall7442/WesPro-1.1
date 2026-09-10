@@ -1,0 +1,454 @@
+/* Лендинг WesPro — публичная страница о системе. Использует те же
+   переменные темы и иконки, что и рабочий интерфейс (style.css грузится
+   первым), но вёрстка своя: здесь не рабочий стол, а витрина. */
+
+/* overflow-x: hidden (не clip) — проверенный способ не дать декоративным
+   бликам вроде .hero-mock::after вызвать горизонтальную прокрутку страницы;
+   в отличие от clip, его провязка с прокруткой viewport надёжнее в старых движках. */
+.landing { overflow-x: hidden; }
+/* Декоративный блик у превью намеренно вылезает за карточку. Обрезаем его
+   здесь, а не на body: липкая шапка лежит снаружи main, поэтому не страдает,
+   а ширина страницы перестаёт растягиваться на мобильном. */
+.landing main { overflow-x: hidden; }
+
+.landing-container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* --- Шапка --- */
+
+.landing-top {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(34px) saturate(1.9);
+  -webkit-backdrop-filter: blur(34px) saturate(1.9);
+  border-bottom: 0.5px solid var(--hairline);
+}
+
+.landing-logo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+.landing-logo span {
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.landing-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  justify-content: center;
+}
+.landing-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 8px 14px;
+  border-radius: 10px;
+}
+.landing-nav a:hover { color: var(--text); background: rgba(var(--accent-rgb), 0.08); }
+
+.landing-top-actions { display: flex; align-items: center; gap: 8px; }
+
+/* --- Кнопки-ссылки (визуально совпадают с button.primary/.mini) --- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 11px 22px;
+  font-weight: 700;
+  font-size: 0.94rem;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border: 0;
+  transition: filter 0.15s, transform 0.06s, background 0.15s;
+  white-space: nowrap;
+}
+.btn:active { transform: scale(0.98); }
+.btn-primary {
+  background: var(--blue);
+  color: var(--accent-fg);
+  box-shadow: 0 5px 16px rgba(var(--accent-rgb), 0.3);
+}
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost {
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+  border: 0.5px solid var(--hairline);
+}
+.btn-ghost:hover { background: rgba(var(--accent-rgb), 0.12); }
+.btn-lg { padding: 14px 28px; font-size: 1.02rem; border-radius: 14px; }
+
+/* --- Герой --- */
+
+.hero {
+  padding: 72px 0 56px;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 48px;
+  align-items: center;
+}
+.hero-eyebrow {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 0.5px solid rgba(var(--accent-rgb), 0.2);
+  padding: 5px 12px;
+  border-radius: 999px;
+  margin-bottom: 18px;
+}
+.hero h1 {
+  margin: 0 0 18px;
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 3.6vw, 3.1rem);
+  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+.hero h1 em {
+  font-style: normal;
+  background: linear-gradient(120deg, var(--accent-ink), var(--muted));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero-sub {
+  font-size: 1.08rem;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 52ch;
+  margin: 0 0 28px;
+}
+.hero-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 26px; }
+.hero-badges { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.hero-badge .ic { color: var(--green-text); width: 1em; height: 1em; }
+
+/* Декоративный «превью» дашборда — не реальный скриншот, а стилизация,
+   собранная из тех же строительных блоков, что и настоящий интерфейс. */
+.hero-mock {
+  background: var(--glass-strong);
+  backdrop-filter: blur(30px) saturate(1.8);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  border: 1px solid var(--glass-border);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+  position: relative;
+}
+.hero-mock::after {
+  content: "";
+  position: absolute;
+  inset: -40px -60px auto auto;
+  width: 220px;
+  height: 220px;
+  background: radial-gradient(circle, rgba(var(--accent-rgb), 0.16), transparent 70%);
+  z-index: -1;
+}
+.mock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 0.5px solid var(--hairline);
+}
+.mock-dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(var(--ink), 0.18); }
+.mock-title { font-size: 0.8rem; font-weight: 700; color: var(--muted); margin-left: 4px; }
+.mock-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.mock-tile {
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  padding: 10px 10px 9px;
+  background: var(--tile-bg);
+  position: relative;
+  overflow: hidden;
+}
+.mock-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: rgba(var(--ink), 0.15);
+}
+.mock-tile.busy::before { background: var(--blue); box-shadow: 0 0 8px var(--blue); }
+.mock-tile.prepaid::before { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+.mock-tile.free::before { background: var(--green-text); }
+.mock-tile b { display: block; font-size: 0.92rem; font-weight: 700; margin-bottom: 3px; }
+.mock-tile span { display: block; font-size: 0.74rem; color: var(--muted); }
+.mock-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.mock-stat {
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  padding: 9px 11px;
+  background: var(--plan-bg);
+}
+.mock-stat b { display: block; font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; }
+.mock-stat span { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+
+/* --- Общие заголовки секций --- */
+
+.section { padding: 64px 0; }
+.section-alt {
+  background: rgba(var(--ink), 0.025);
+  border-top: 0.5px solid var(--hairline);
+  border-bottom: 0.5px solid var(--hairline);
+}
+.section-head { max-width: 640px; margin: 0 0 36px; }
+.section-eyebrow {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.section-head h2 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: clamp(1.55rem, 2.4vw, 2.05rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.section-head p { margin: 0; color: var(--muted); font-size: 1rem; line-height: 1.55; }
+.section-head.center { margin-left: auto; margin-right: auto; text-align: center; }
+
+/* --- Карточки «для кого» --- */
+
+.audience-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.audience-card {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 24px 22px;
+}
+.audience-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--accent-rgb), 0.1);
+  margin-bottom: 16px;
+}
+.audience-icon .ic { width: 22px; height: 22px; color: var(--accent-ink); }
+.audience-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.audience-card p { margin: 0; color: var(--muted); font-size: 0.92rem; line-height: 1.55; }
+
+/* --- Группы возможностей --- */
+
+.feature-group { margin-bottom: 52px; }
+.feature-group:last-child { margin-bottom: 0; }
+.feature-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.feature-group-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--accent-rgb), 0.1);
+}
+.feature-group-icon .ic { width: 19px; height: 19px; color: var(--accent-ink); }
+.feature-group-head h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.feature-group-head p { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.feature-item {
+  border: 0.5px solid var(--hairline);
+  border-radius: 16px;
+  padding: 16px 18px;
+  background: var(--glass);
+}
+.feature-item b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.94rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.feature-item b .ic { width: 15px; height: 15px; color: var(--muted); flex: none; }
+.feature-item p { margin: 0; color: var(--muted); font-size: 0.87rem; line-height: 1.5; }
+
+/* --- Сеть клубов: выделенный блок --- */
+
+.network-panel {
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  padding: 36px;
+  box-shadow: var(--shadow);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: start;
+}
+.network-panel h2 {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.network-panel > div:first-child p { color: var(--muted); line-height: 1.6; margin: 0 0 20px; }
+.network-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.network-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 0.92rem; line-height: 1.5; }
+.network-list li .ic { color: var(--green-text); width: 1.05em; height: 1.05em; margin-top: 2px; flex: none; }
+.network-list b { display: block; }
+.network-list span { color: var(--muted); }
+
+/* --- Почему WesPro --- */
+
+.why-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+.why-item { text-align: left; }
+.why-item .ic-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: rgba(var(--accent-rgb), 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+.why-item .ic-wrap .ic { width: 21px; height: 21px; color: var(--accent-ink); }
+.why-item h3 { margin: 0 0 6px; font-size: 1rem; font-weight: 700; }
+.why-item p { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
+
+/* --- Контакты / финальный призыв --- */
+
+.cta-panel {
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.1), rgba(var(--accent-rgb), 0.02));
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  padding: 44px 36px;
+  text-align: center;
+}
+.cta-panel h2 {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.cta-panel p { margin: 0 auto 26px; color: var(--muted); max-width: 50ch; line-height: 1.55; }
+.cta-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 22px; }
+.contact-row {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+.contact-row a { color: var(--text); font-weight: 600; text-decoration: none; }
+.contact-row a:hover { color: var(--accent-ink); }
+.contact-row .placeholder { color: var(--red); font-weight: 600; }
+
+/* --- Подвал --- */
+
+.landing-footer {
+  border-top: 0.5px solid var(--hairline);
+  padding: 28px 0 36px;
+}
+.footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
+.footer-links a { color: var(--muted); text-decoration: none; font-size: 0.88rem; font-weight: 600; }
+.footer-links a:hover { color: var(--text); }
+.footer-copy { color: var(--muted); font-size: 0.85rem; }
+
+/* --- Мобильная адаптация --- */
+
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; padding-top: 44px; }
+  .network-panel { grid-template-columns: 1fr; padding: 26px; }
+  .landing-nav { display: none; }
+}
+@media (max-width: 560px) {
+  .landing-container { padding: 0 18px; }
+  /* Две кнопки в ряд на телефоне не помещаются — текст вылезал за край.
+     Ставим их друг под другом во всю ширину: и читается, и попасть легче. */
+  .hero-actions .btn, .cta-actions .btn { flex: 1 1 100%; }
+  .mock-grid, .mock-stats { grid-template-columns: repeat(2, 1fr); }
+}
