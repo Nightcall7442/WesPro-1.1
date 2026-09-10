@@ -128,9 +128,19 @@ class CompositeLightingController {
   }
 }
 
-let controller = new MockLightingController();
-let tuyaClient = null;
-let activeDriver = "mock";
+// Состояние драйвера — своё у каждой базы. В сети клубов все клубы
+// работают в одном процессе, и один общий контроллер отправлял бы
+// команду одного клуба на реле (или в облачный аккаунт) другого.
+const states = new WeakMap();
+
+function stateFor(db) {
+  let state = states.get(db);
+  if (!state) {
+    state = { controller: new MockLightingController(), tuyaClient: null, driver: "mock" };
+    states.set(db, state);
+  }
+  return state;
+}
 
 /**
  * (Пере)инициализация драйвера по настройкам из базы. Вызывается при старте
@@ -142,7 +152,8 @@ let activeDriver = "mock";
  */
 export async function initLighting(db) {
   const settings = getSettings(db);
-  tuyaClient = null;
+  const state = stateFor(db);
+  state.tuyaClient = null;
 
   // Строка стола: по ней общий контроллер понимает, куда слать команду.
   const resolveRow = (tableId) =>
@@ -165,12 +176,12 @@ export async function initLighting(db) {
       }
       // Импортируем пакет только когда драйвер действительно нужен.
       const { TuyaContext } = await import("@tuya/tuya-connector-nodejs");
-      tuyaClient = new TuyaContext({
+      state.tuyaClient = new TuyaContext({
         baseUrl: settings.tuya_api_host,
         accessKey: settings.tuya_access_id,
         secretKey: settings.tuya_access_secret,
       });
-      tuya = new TuyaLightingController(tuyaClient, (tableId) => {
+      tuya = new TuyaLightingController(state.tuyaClient, (tableId) => {
         const row = resolveRow(tableId);
         return row
           ? { device_id: row.tuya_device_id, switch_code: row.tuya_switch_code }
@@ -179,7 +190,7 @@ export async function initLighting(db) {
       console.info("Tuya lighting: драйвер включён");
     } catch (err) {
       error = err.message;
-      tuyaClient = null;
+      state.tuyaClient = null;
       tuya = null;
       console.error(
         `Tuya lighting: не удалось включить драйвер (${err.message}). ` +
@@ -189,14 +200,17 @@ export async function initLighting(db) {
     }
   }
 
-  controller = new CompositeLightingController(resolveRow, tuya);
-  activeDriver = tuya ? "tuya" : "mock";
-  return error ? { driver: activeDriver, error } : { driver: activeDriver };
+  state.controller = new CompositeLightingController(resolveRow, tuya);
+  state.driver = tuya ? "tuya" : "mock";
+  return error ? { driver: state.driver, error } : { driver: state.driver };
 }
 
-/** Текущий контроллер освещения. */
-export function getLightingController() {
-  return controller;
+/**
+ * Текущий контроллер освещения этой базы.
+ * @param {import("node:sqlite").DatabaseSync} db
+ */
+export function getLightingController(db) {
+  return stateFor(db).controller;
 }
 
 /**
@@ -222,6 +236,7 @@ export async function syncLighting(db) {
               OR (t.tuya_device_id IS NOT NULL AND t.tuya_device_id != ''))`
     )
     .all();
+  const { controller } = stateFor(db);
   let synced = 0;
   for (const row of rows) {
     const shouldBeOn = Boolean(row.busy);
@@ -241,8 +256,8 @@ export async function syncLighting(db) {
 }
 
 /** Имя активного драйвера ("mock" | "tuya") — для вкладки «Настройки». */
-export function getActiveDriver() {
-  return activeDriver;
+export function getActiveDriver(db) {
+  return stateFor(db).driver;
 }
 
 /**
@@ -250,7 +265,8 @@ export function getActiveDriver() {
  * «Настройки». Требует включённого драйвера tuya.
  * @returns {Promise<Array<{id: string, name: string, online: boolean|null}>>}
  */
-export async function listCloudDevices() {
+export async function listCloudDevices(db) {
+  const { tuyaClient } = stateFor(db);
   if (!tuyaClient) {
     throw new ConflictError(
       "Подключение Tuya не настроено: включите драйвер, заполните ключи и нажмите «Сохранить»"

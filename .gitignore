@@ -3,6 +3,8 @@ billiards.db
 billiards.db-*
 hub.db
 hub.db-*
+# Базы клубов сети: у каждого клуба свой файл (см. src/tenants.js).
+data/
 *.log
 .env
 devices.json

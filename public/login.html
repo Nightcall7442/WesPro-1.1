@@ -68,8 +68,8 @@
     <form class="login-card" id="login-form">
       <img id="login-logo" class="login-logo" alt="" hidden>
       <h1 id="login-title">Бильярдный клуб</h1>
-      <p class="sub">Вход для сотрудников</p>
-      <label class="field">Логин
+      <p class="sub" id="login-sub">Вход для сотрудников</p>
+      <label class="field" id="login-field">Логин
         <input id="login" type="text" autocomplete="username" required autofocus>
       </label>
       <label class="field">Пароль
@@ -85,6 +85,9 @@
       </label>
       <p class="login-error" id="login-error"></p>
       <button type="submit" class="primary">Войти</button>
+      <p class="sub" id="login-register" hidden style="margin: 4px 0 0">
+        Ещё нет клуба? <a href="/account/register">Зарегистрировать</a>
+      </p>
     </form>
   </div>
   <script>
@@ -104,6 +107,15 @@
           logo.src = brand.club_logo;
           logo.alt = brand.club_name ?? "";
           logo.hidden = false;
+        }
+        // Сеть клубов, а клуб ещё не выбран: браузер не знает, чей это
+        // вход, поэтому владелец называет себя почтой. Сотрудникам
+        // остаётся ссылка их клуба — её даёт владелец в кабинете.
+        if (brand.network) {
+          document.getElementById("login-field").firstChild.textContent = "Почта";
+          document.getElementById("login").type = "email";
+          document.getElementById("login-sub").textContent = "Вход для владельца клуба";
+          document.getElementById("login-register").hidden = false;
         }
       } catch {
         // Нет связи с сервером — остаётся название по умолчанию.

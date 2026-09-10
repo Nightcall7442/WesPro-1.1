@@ -53,7 +53,7 @@ import {
 } from "../services/config-transfer.js";
 import { checkupData, fixData } from "../services/doctor.js";
 import { describeSchema, runReadOnlyQuery } from "../services/sql-console.js";
-import { RESTART_EXIT_CODE } from "../config.js";
+import { networkMode, RESTART_EXIT_CODE } from "../config.js";
 import { clearRequests, recentRequests } from "../services/request-log.js";
 import { buildSupportReport, supportReportFileName } from "../services/support.js";
 import { networkInfo } from "../services/network.js";
@@ -187,6 +187,22 @@ function ownerLevel(db, req) {
 function requireDeveloper(req) {
   if (req.user?.role !== "developer") {
     throw new ForbiddenError("Доступно только разработчику");
+  }
+}
+
+/**
+ * Действия, которые касаются всего сервера, а не одного клуба:
+ * перезапуск, адреса машины, общий журнал внутренних ошибок.
+ *
+ * В облачной версии один сервер обслуживает всю сеть, поэтому такие
+ * действия закрыты даже разработчику клуба: перезапуск уронил бы работу
+ * соседних клубов, а общий журнал ошибок показал бы их адреса и данные.
+ */
+function requireOwnServer() {
+  if (networkMode()) {
+    throw new ForbiddenError(
+      "В облачной версии это делает поддержка WesPro: сервер общий для всей сети"
+    );
   }
 }
 
@@ -747,7 +763,7 @@ export function createApiRouter(db) {
   });
 
   router.get("/dashboard", (req, res) => {
-    const lighting = getLightingController();
+    const lighting = getLightingController(db);
     const now = Date.now();
     // Тариф по расписанию считаем один раз на весь дашборд, а не на стол.
     const autoTariffId = resolveTariffId(db, getClubSettings(db).tz_offset_minutes);
@@ -850,7 +866,7 @@ export function createApiRouter(db) {
     requirePermission(db, req, "manage_settings");
     res.json({
       ...maskTuyaSettings(getSettings(db), req),
-      driver_active: getActiveDriver(),
+      driver_active: getActiveDriver(db),
     });
   });
 
@@ -879,6 +895,7 @@ export function createApiRouter(db) {
   // причину «внутренней ошибки сервера» было видно из интерфейса.
   router.get("/diagnostics", (req, res) => {
     requireDeveloper(req);
+    requireOwnServer();
     // Автоматические копии показываем здесь же: видно, что страховка
     // работает и когда сделана последняя копия.
     res.json({
@@ -909,8 +926,9 @@ export function createApiRouter(db) {
   // разработчику вместо «у нас что-то не работает».
   router.get("/support/report", (req, res) => {
     requireDeveloper(req);
+    requireOwnServer();
     const report = buildSupportReport(db, req.user, {
-      requests: recentRequests({ limit: 200 }),
+      requests: recentRequests(db, { limit: 200 }),
       issues: checkupData(db).issues,
     });
     logEvent(
@@ -978,6 +996,7 @@ export function createApiRouter(db) {
   // иначе программа просто остановится, и её нужно будет запустить руками.
   router.post("/system/restart", (req, res) => {
     requireDeveloper(req);
+    requireOwnServer();
     logEvent(
       db,
       JournalEvent.SETTINGS_UPDATED,
@@ -1003,7 +1022,7 @@ export function createApiRouter(db) {
   router.get("/support/requests", (req, res) => {
     requireDeveloper(req);
     res.json({
-      requests: recentRequests({
+      requests: recentRequests(db, {
         limit: clampLimit(req.query.limit, 200, 200),
         onlyErrors: req.query.only_errors === "true",
       }),
@@ -1012,7 +1031,7 @@ export function createApiRouter(db) {
 
   router.delete("/support/requests", (req, res) => {
     requireDeveloper(req);
-    clearRequests();
+    clearRequests(db);
     res.json({ ok: true });
   });
 
@@ -1029,7 +1048,7 @@ export function createApiRouter(db) {
       if (!table) return res.status(404).json({ detail: "Стол не найден" });
       const on = Boolean(req.body?.on);
       try {
-        await getLightingController().setLight(table.id, on);
+        await getLightingController(db).setLight(table.id, on);
       } catch (error) {
         throw new ConflictError(error.message);
       }
@@ -1107,13 +1126,14 @@ export function createApiRouter(db) {
   // Показывается во вкладке «Настройки», чтобы не искать их в консоли.
   router.get("/network", (req, res) => {
     requireDeveloper(req);
+    requireOwnServer();
     res.json(networkInfo(PORT));
   });
 
   router.get("/settings/devices", async (req, res, next) => {
     try {
       requireDeveloper(req);
-      res.json(await listCloudDevices());
+      res.json(await listCloudDevices(db));
     } catch (error) {
       next(error);
     }

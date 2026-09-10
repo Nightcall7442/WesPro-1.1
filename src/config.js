@@ -14,6 +14,23 @@ export const DATABASE_PATH =
 export const HUB_DATABASE_PATH =
   process.env.WESPRO_HUB_DATABASE_PATH ?? path.join(ROOT_DIR, "hub.db");
 
+// Папка с базами клубов сети: у каждого клуба свой файл
+// data/clubs/<id>/billiards.db. Разделение по файлам, а не по колонке
+// club_id в общих таблицах: к чужой базе просто нет открытого
+// подключения, поэтому забытое условие в запросе не может показать
+// одному клубу данные другого.
+export const CLUBS_DIR =
+  process.env.WESPRO_CLUBS_DIR ?? path.join(ROOT_DIR, "data", "clubs");
+
+// Режим «сеть клубов»: один сервер обслуживает много клубов сразу
+// (wespro.uz). Выключен — обычная установка на один клуб, где база одна
+// и никакого разделения не нужно.
+// Читается при каждом обращении — как landingAtRoot(), чтобы значение
+// можно было подменить в тестах.
+export function networkMode() {
+  return process.env.WESPRO_NETWORK === "1";
+}
+
 export const PORT = Number(process.env.PORT ?? 8000);
 
 // Сидинг стартовых данных при первом запуске на пустой базе.

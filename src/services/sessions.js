@@ -454,7 +454,7 @@ export function openSession(
     return newSessionId;
   });
 
-  getLightingController().turnLightOn(table.id);
+  getLightingController(db).turnLightOn(table.id);
   return getSession(db, sessionId);
 }
 
@@ -638,7 +638,7 @@ export function moveSession(db, tableId, user, { targetTableId = null } = {}) {
     });
   });
 
-  const lighting = getLightingController();
+  const lighting = getLightingController(db);
   lighting.turnLightOff(from.id);
   lighting.turnLightOn(to.id);
   return getSession(db, session.id);
@@ -854,7 +854,7 @@ export function closeSession(
     });
   });
 
-  getLightingController().turnLightOff(table.id);
+  getLightingController(db).turnLightOff(table.id);
   const closed = getSession(db, session.id);
   // Выданный чек отдаём вызывающему: его код нужно показать кассиру и
   // напечатать на чеке.

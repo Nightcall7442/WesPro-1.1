@@ -5,10 +5,7 @@ import express from "express";
 import path from "node:path";
 
 import { landingAtRoot, PUBLIC_DIR } from "./config.js";
-import { accountTokenFromCookie, clubByToken } from "./hub/account.js";
-import { createAccountRouter } from "./hub/account-routes.js";
-import { hubTokenFromCookie, hubUserByToken } from "./hub/auth.js";
-import { createHubRouter } from "./hub/routes.js";
+import { mountHubAndAccount } from "./hub/mount.js";
 import { createApiRouter } from "./routes/api.js";
 import { getUserByToken, tokenFromCookieHeader } from "./services/auth.js";
 import { logServerError } from "./services/diagnostics.js";
@@ -47,7 +44,7 @@ export function createApp(db, hubDb = null) {
 
   // Журнал последних запросов: «что нажимали и чем это кончилось».
   // Ставится после определения пользователя, чтобы в записи было имя.
-  app.use(requestLogger());
+  app.use(requestLogger(db));
 
   app.get("/", (req, res) => {
     if (!req.user) {
@@ -79,47 +76,9 @@ export function createApp(db, hubDb = null) {
 
   app.use("/static", express.static(PUBLIC_DIR));
 
-  // --- Центральная панель сети клубов --------------------------------------
-  // Свой вход, своя cookie, своя база: сотрудник клуба сюда не попадает
-  // даже с действующей сессией клуба.
-  if (hubDb) {
-    app.use("/hub", (req, res, next) => {
-      req.hubToken = hubTokenFromCookie(req.headers.cookie);
-      req.hubUser = hubUserByToken(hubDb, req.hubToken);
-      next();
-    });
-    app.get("/hub", (req, res) => {
-      if (!req.hubUser) return res.redirect("/hub/login");
-      res.sendFile(path.join(PUBLIC_DIR, "hub.html"));
-    });
-    app.get("/hub/login", (req, res) => {
-      if (req.hubUser) return res.redirect("/hub");
-      res.sendFile(path.join(PUBLIC_DIR, "hub-login.html"));
-    });
-    app.use("/hub", createHubRouter(hubDb));
-
-    // --- Личный кабинет владельца клуба ------------------------------------
-    // Тоже своя cookie (Path=/account), поэтому и вход, и API — на своём
-    // префиксе: cookie с одним путём на другой браузер не пошлёт.
-    app.use("/account", (req, res, next) => {
-      req.accountToken = accountTokenFromCookie(req.headers.cookie);
-      req.accountClub = clubByToken(hubDb, req.accountToken);
-      next();
-    });
-    app.get("/account", (req, res) => {
-      if (!req.accountClub) return res.redirect("/account/login");
-      res.sendFile(path.join(PUBLIC_DIR, "account.html"));
-    });
-    app.get("/account/login", (req, res) => {
-      if (req.accountClub) return res.redirect("/account");
-      res.sendFile(path.join(PUBLIC_DIR, "account-login.html"));
-    });
-    app.get("/account/register", (req, res) => {
-      if (req.accountClub) return res.redirect("/account");
-      res.sendFile(path.join(PUBLIC_DIR, "account-register.html"));
-    });
-    app.use("/account", createAccountRouter(hubDb));
-  }
+  // Панель сети клубов (/hub) и личный кабинет владельца (/account) —
+  // общие с сетевым режимом, см. src/hub/mount.js.
+  if (hubDb) mountHubAndAccount(app, hubDb);
 
   // Всё API, кроме входа и названия/логотипа клуба (их показывает страница
   // входа — до авторизации), требует авторизации.

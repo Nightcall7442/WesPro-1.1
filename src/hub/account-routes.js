@@ -19,9 +19,17 @@ import {
 
 /**
  * @param {import("node:sqlite").DatabaseSync} hubDb
+ * @param {{openProgram?: import("express").RequestHandler,
+ *          onPasswordChanged?: (clubId: number) => void}} [options]
+ *   openProgram — переход из кабинета сразу в программу клуба (только в
+ *   сетевом режиме: в одиночной установке программа и так одна).
+ *   onPasswordChanged — пароль владельца поменялся; в сети им же
+ *   открывается программа, поэтому там его надо обновить и в базе клуба.
  */
-export function createAccountRouter(hubDb) {
+export function createAccountRouter(hubDb, { openProgram = null, onPasswordChanged = null } = {}) {
   const router = express.Router();
+
+  if (openProgram) router.get("/open", openProgram);
 
   router.post("/api/register", (req, res) => {
     const club = registerClub(hubDb, req.body ?? {});
@@ -58,14 +66,14 @@ export function createAccountRouter(hubDb) {
   });
 
   router.post("/api/password", (req, res) => {
-    res.json(
-      changeClubPassword(
-        hubDb,
-        req.accountClub.id,
-        req.body?.old_password,
-        req.body?.new_password
-      )
+    const result = changeClubPassword(
+      hubDb,
+      req.accountClub.id,
+      req.body?.old_password,
+      req.body?.new_password
     );
+    onPasswordChanged?.(req.accountClub.id);
+    res.json(result);
   });
 
   // eslint-disable-next-line no-unused-vars -- четыре аргумента обязательны для Express

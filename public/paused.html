@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Подписка приостановлена — WesPro</title>
+  <script>
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("billiards_theme") === "dark" ? "dark" : "light";
+    } catch (e) {
+      document.documentElement.dataset.theme = "light";
+    }
+  </script>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .paused-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .paused-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--glass-strong);
+      border: 1px solid var(--glass-border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 32px 28px;
+      text-align: center;
+    }
+    .paused-card h1 {
+      margin: 0 0 10px;
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--accent-ink);
+    }
+    .paused-card p { color: var(--muted); margin: 0 0 20px; line-height: 1.55; }
+    .paused-card a.primary { display: inline-block; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="paused-wrap">
+    <div class="paused-card">
+      <h1>Подписка приостановлена</h1>
+      <p>
+        Данные клуба на месте и никуда не денутся — программа снова
+        откроется сразу после оплаты.
+      </p>
+      <a class="primary" href="/account">Открыть личный кабинет</a>
+    </div>
+  </div>
+</body>
+</html>

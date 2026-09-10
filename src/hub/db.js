@@ -8,9 +8,18 @@
 // Клубы в хабе — это карточки, а не сами базы: клуб работает у себя, а
 // сюда лишь отмечается («я на связи») и получает ответ, оплачен ли он.
 
+import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 import { HUB_DATABASE_PATH } from "../config.js";
+
+/**
+ * Короткий адрес клуба в сети: из него собирается ссылка, по которой
+ * сотрудники клуба попадают на свой вход (/login?club=…). Не ключ
+ * доступа — по нему нельзя ничего сделать без логина и пароля, — но и
+ * не порядковый номер: перебрать чужие клубы им нельзя.
+ */
+export const newClubCode = () => randomBytes(6).toString("hex");
 
 /**
  * Добавляет колонку, если её ещё нет — безопасно для уже развёрнутой
@@ -172,6 +181,19 @@ export function createHubDatabase(filePath = HUB_DATABASE_PATH) {
   // почте. NULL — клуб завели в панели вручную, входа по почте у него
   // пока нет (владелец сервиса может задать пароль позже).
   ensureColumn(db, "clubs", "password_hash", "password_hash TEXT");
+  // Адрес клуба в сети (см. newClubCode). Клубам, заведённым до
+  // появления мультиарендности, код выдаём здесь же — иначе их ссылка
+  // для сотрудников никуда не вела бы.
+  ensureColumn(db, "clubs", "code", "code TEXT");
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_clubs_code ON clubs (code) WHERE code IS NOT NULL"
+  );
+  const setCode = db.prepare("UPDATE clubs SET code = ? WHERE id = ?");
+  for (const row of db
+    .prepare("SELECT id FROM clubs WHERE code IS NULL OR code = ''")
+    .all()) {
+    setCode.run(newClubCode(), row.id);
+  }
   // Одна и та же почта не может быть у двух клубов — иначе непонятно,
   // в чей кабинет входить. Пустая почта (клубы, заведённые вручную без
   // неё) индексом не ограничена — таких может быть сколько угодно.

@@ -8,7 +8,7 @@ import { getLightingController } from "../src/services/lighting.js";
 import { adminAgent, createTable, createTariff, makeApp } from "./helpers.js";
 
 test("открытие стола", async () => {
-  const { app } = makeApp();
+  const { db, app } = makeApp();
   const request = await adminAgent(app);
   const table = await createTable(request);
   const tariff = await createTariff(request);
@@ -27,11 +27,11 @@ test("открытие стола", async () => {
   assert.equal(row.status, "busy");
   assert.equal(row.light_on, true);
   assert.equal(row.session.session_id, res.body.id);
-  assert.ok(getLightingController().isLightOn(table.id));
+  assert.ok(getLightingController(db).isLightOn(table.id));
 });
 
 test("закрытие стола", async () => {
-  const { app } = makeApp();
+  const { db, app } = makeApp();
   const request = await adminAgent(app);
   const table = await createTable(request);
   const tariff = await createTariff(request);
@@ -47,7 +47,7 @@ test("закрытие стола", async () => {
   assert.equal(row.status, "free");
   assert.equal(row.session, null);
   assert.equal(row.light_on, false);
-  assert.ok(!getLightingController().isLightOn(table.id));
+  assert.ok(!getLightingController(db).isLightOn(table.id));
 
   const history = await request.get("/api/history");
   assert.deepEqual(
