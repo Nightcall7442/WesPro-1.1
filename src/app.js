@@ -4,7 +4,7 @@
 import express from "express";
 import path from "node:path";
 
-import { LANDING_AT_ROOT, PUBLIC_DIR } from "./config.js";
+import { landingAtRoot, PUBLIC_DIR } from "./config.js";
 import { hubTokenFromCookie, hubUserByToken } from "./hub/auth.js";
 import { createHubRouter } from "./hub/routes.js";
 import { createApiRouter } from "./routes/api.js";
@@ -49,10 +49,10 @@ export function createApp(db, hubDb = null) {
 
   app.get("/", (req, res) => {
     if (!req.user) {
-      // На «витрине» (LANDING_AT_ROOT) показываем описание системы;
-      // на программе отдельного клуба сразу ведём на вход — гостю
-      // рекламная страница там ни к чему.
-      if (LANDING_AT_ROOT) return res.sendFile(path.join(PUBLIC_DIR, "landing.html"));
+      // Гостю показываем описание системы, сотруднику — вход по кнопке
+      // «Войти». Клуб, которому витрина на рабочем месте не нужна,
+      // ставит WESPRO_LANDING_ROOT=0 и получает сразу форму входа.
+      if (landingAtRoot()) return res.sendFile(path.join(PUBLIC_DIR, "landing.html"));
       return res.redirect("/login");
     }
     res.sendFile(path.join(PUBLIC_DIR, "index.html"));

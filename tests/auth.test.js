@@ -16,13 +16,41 @@ import {
 
 // --- Вход ------------------------------------------------------------------
 
-test("без входа API недоступно, страница уводит на /login", async () => {
+test("без входа API недоступно, а на корне гостя встречает описание системы", async () => {
   const { app } = makeApp();
   const anon = supertest(app);
   assert.equal((await anon.get("/api/dashboard")).status, 401);
+
+  // Корень открыт: чаще всего туда заходит тот, кто ещё не знает, что
+  // это за программа. Данных клуба на этой странице нет — только рассказ
+  // о системе и кнопка «Войти».
   const page = await anon.get("/");
-  assert.equal(page.status, 302);
-  assert.equal(page.headers.location, "/login");
+  assert.equal(page.status, 200);
+  assert.match(page.text, /WesPro/);
+  assert.match(page.text, /href="\/login"/, "с лендинга есть вход для сотрудников");
+});
+
+test("клуб может вернуть себе прямой вход вместо лендинга", async () => {
+  // WESPRO_LANDING_ROOT=0 — для клуба, который поставил программу себе:
+  // кассиру витрина на рабочем месте не нужна.
+  const previous = process.env.WESPRO_LANDING_ROOT;
+  process.env.WESPRO_LANDING_ROOT = "0";
+  try {
+    const { app } = makeApp();
+    const page = await supertest(app).get("/");
+    assert.equal(page.status, 302);
+    assert.equal(page.headers.location, "/login");
+  } finally {
+    if (previous === undefined) delete process.env.WESPRO_LANDING_ROOT;
+    else process.env.WESPRO_LANDING_ROOT = previous;
+  }
+});
+
+test("страница о системе открывается по прямой ссылке всегда", async () => {
+  const { app } = makeApp();
+  const page = await supertest(app).get("/about");
+  assert.equal(page.status, 200);
+  assert.match(page.text, /WesPro/);
 });
 
 test("вход с неверным паролем отклоняется", async () => {
