@@ -59,6 +59,13 @@ app.listen(PORT, () => {
       `   Вход в панель — логин «${hubOwner.login}», пароль «${hubOwner.password}»` +
         (hubOwner.generated ? " (сгенерирован, смените после входа)" : "")
     );
+    if (hubOwner.reset) {
+      console.log(
+        "   Пароль задан переменной WESPRO_HUB_PASSWORD и будет ставиться\n" +
+          "   заново при каждом запуске. Войдите, смените пароль в панели\n" +
+          "   и уберите переменную — иначе смена не удержится."
+      );
+    }
   }
 
   const addresses = lanAddresses();

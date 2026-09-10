@@ -13,7 +13,7 @@ import supertest from "supertest";
 import { createApp } from "../src/app.js";
 import { createDatabase } from "../src/db.js";
 import { createHubDatabase } from "../src/hub/db.js";
-import { createHubUser } from "../src/hub/auth.js";
+import { authenticateHubUser, createHubUser, seedHubOwner } from "../src/hub/auth.js";
 import { plusDays, refreshStatuses } from "../src/hub/clubs.js";
 
 const OWNER = { login: "owner", name: "Владелец сервиса", password: "vladelec123" };
@@ -446,4 +446,48 @@ test("клубный API не знает про панель, а панель �
   // Сессия панели не даёт доступа к кассе клуба.
   const res = await hub.get("/api/dashboard");
   assert.equal(res.status, 401, "владелец сервиса не лезет в кассу клуба своей сессией");
+});
+
+// --- Вход в саму панель: чтобы владелец сервиса не остался за дверью ---------
+
+test("владелец сервиса заводится при первом запуске со случайным паролем", () => {
+  const hubDb = createHubDatabase(":memory:");
+  const first = seedHubOwner(hubDb);
+  assert.equal(first.login, "owner");
+  assert.equal(first.generated, true);
+  assert.ok(authenticateHubUser(hubDb, "owner", first.password));
+
+  // Второй запуск ничего не трогает: пароль, заданный человеком, не сбрасываем.
+  assert.equal(seedHubOwner(hubDb), null);
+});
+
+test("WESPRO_HUB_PASSWORD задаёт пароль и уже заведённому владельцу", (t) => {
+  const hubDb = createHubDatabase(":memory:");
+  const first = seedHubOwner(hubDb);
+  assert.ok(authenticateHubUser(hubDb, "owner", first.password));
+
+  // Пароль печатался единственный раз при самом первом запуске. Если он
+  // потерян, панель со всеми клубами оказалась бы закрыта навсегда —
+  // переменная окружения и есть запасной ключ от этой двери.
+  process.env.WESPRO_HUB_PASSWORD = "novyi-parol-1";
+  t.after(() => delete process.env.WESPRO_HUB_PASSWORD);
+
+  const reset = seedHubOwner(hubDb);
+  assert.equal(reset.reset, true);
+  assert.equal(authenticateHubUser(hubDb, "owner", first.password), null, "старый больше не подходит");
+  assert.ok(authenticateHubUser(hubDb, "owner", "novyi-parol-1"));
+});
+
+test("логин владельца из окружения не зависит от регистра", (t) => {
+  const hubDb = createHubDatabase(":memory:");
+  process.env.WESPRO_HUB_LOGIN = "Boris";
+  process.env.WESPRO_HUB_PASSWORD = "parol-borisa-1";
+  t.after(() => {
+    delete process.env.WESPRO_HUB_LOGIN;
+    delete process.env.WESPRO_HUB_PASSWORD;
+  });
+
+  const seeded = seedHubOwner(hubDb);
+  assert.equal(seeded.login, "boris");
+  assert.ok(authenticateHubUser(hubDb, "BORIS", "parol-borisa-1"), "вход не зависит от регистра");
 });

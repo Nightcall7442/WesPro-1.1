@@ -19,18 +19,40 @@ function toPublic(row) {
 
 /**
  * Заводит владельца сервиса при первом запуске, если панель пустая.
- * Пароль берётся из окружения (WESPRO_HUB_PASSWORD) — держать пароль
- * по умолчанию в коде для панели, где лежат все клубы, нельзя.
- * @returns {{login: string, password: string} | null} что показать в консоли
+ * Пароль по умолчанию в коде для панели, где лежат все клубы, держать
+ * нельзя, поэтому он либо берётся из окружения (WESPRO_HUB_PASSWORD),
+ * либо генерируется и печатается в консоль один раз.
+ *
+ * Если WESPRO_HUB_PASSWORD задана, она задаёт пароль и уже заведённому
+ * владельцу. Иначе панель становилась недоступна навсегда: пароль
+ * печатался единственный раз при самом первом запуске, и на хостинге,
+ * где логи давно уехали, войти было уже нечем.
+ *
+ * @returns {{login: string, password: string, generated: boolean, reset: boolean} | null}
+ *   что показать в консоли (null — ничего не меняли)
  */
 export function seedHubOwner(db) {
-  if (db.prepare("SELECT id FROM hub_users LIMIT 1").get()) return null;
-  const login = process.env.WESPRO_HUB_LOGIN ?? "owner";
-  const password = process.env.WESPRO_HUB_PASSWORD ?? randomBytes(6).toString("hex");
+  const login = String(process.env.WESPRO_HUB_LOGIN ?? "owner").trim().toLowerCase();
+  const forced = process.env.WESPRO_HUB_PASSWORD;
+  const existing = db.prepare("SELECT id FROM hub_users WHERE login = ?").get(login);
+
+  if (existing) {
+    if (!forced) return null;
+    db.prepare("UPDATE hub_users SET password_hash = ?, is_active = 1 WHERE id = ?").run(
+      hashPassword(forced),
+      existing.id
+    );
+    return { login, password: forced, generated: false, reset: true };
+  }
+  // Панель уже с людьми, а этого логина в ней нет: молча заводить ещё
+  // одного владельца — не наше дело, их добавляют внутри панели.
+  if (!forced && db.prepare("SELECT id FROM hub_users LIMIT 1").get()) return null;
+
+  const password = forced ?? randomBytes(6).toString("hex");
   db.prepare(
     "INSERT INTO hub_users (login, name, password_hash, created_at) VALUES (?, ?, ?, ?)"
   ).run(login, "Владелец сервиса", hashPassword(password), now());
-  return { login, password, generated: !process.env.WESPRO_HUB_PASSWORD };
+  return { login, password, generated: !forced, reset: false };
 }
 
 export function listHubUsers(db) {
