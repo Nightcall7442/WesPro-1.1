@@ -28,7 +28,11 @@ export const CLUBS_DIR =
 // Читается при каждом обращении — как landingAtRoot(), чтобы значение
 // можно было подменить в тестах.
 export function networkMode() {
-  return process.env.WESPRO_NETWORK === "1";
+  // Значение из панели хостинга легко приходит с пробелом или как
+  // «true» — считать такую переменную выключенной значило бы молча
+  // работать не в том режиме, в каком её просили включить.
+  const value = String(process.env.WESPRO_NETWORK ?? "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(value);
 }
 
 export const PORT = Number(process.env.PORT ?? 8000);

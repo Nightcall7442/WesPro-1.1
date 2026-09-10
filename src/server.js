@@ -2,7 +2,7 @@
 // или npm start.
 
 import { createApp } from "./app.js";
-import { networkMode, PORT, SEED_INITIAL_DATA } from "./config.js";
+import { CLUBS_DIR, networkMode, PORT, SEED_INITIAL_DATA } from "./config.js";
 import { createDatabase } from "./db.js";
 import { seedHubOwner } from "./hub/auth.js";
 import { createHubDatabase } from "./hub/db.js";
@@ -44,6 +44,14 @@ if (networkMode()) {
 // зайти можно и с самого компьютера, и с любого устройства сети по
 // любому из адресов ниже.
 app.listen(PORT, () => {
+  // Режим печатаем первым делом: по логам хостинга сразу видно, включена
+  // ли переменная WESPRO_NETWORK — без этого «почему вход не открывает
+  // программу» приходится выяснять вслепую.
+  console.log(
+    networkMode()
+      ? `Режим: сеть клубов — у каждого своя база в ${CLUBS_DIR}`
+      : "Режим: один клуб (сеть выключена, WESPRO_NETWORK не задана)"
+  );
   console.log(`Бильярдный клуб: http://127.0.0.1:${PORT}`);
   console.log(`Панель сети клубов: http://127.0.0.1:${PORT}/hub`);
   if (hubOwner) {
