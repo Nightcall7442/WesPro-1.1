@@ -46,8 +46,8 @@ async function load() {
   document.getElementById("club-days").textContent =
     club.days_left === null ? "—" : club.days_left < 0 ? "истёк" : String(club.days_left);
   document.getElementById("club-key").textContent = club.api_key;
-  document.getElementById("staff-link").textContent = club.code
-    ? `${window.location.origin}/login?club=${club.code}`
+  document.getElementById("staff-link").textContent = club.slug
+    ? `${window.location.origin}/login/adminpanel/${club.slug}`
     : "—";
 
   const table = document.getElementById("payments-table");

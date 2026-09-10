@@ -7,7 +7,8 @@
 // Как браузер сообщает, в какой клуб идёт запрос. В cookie wespro_club
 // лежит адрес клуба в сети. Он попадает туда одним из трёх способов:
 //   • владелец нажал в кабинете «Открыть программу»;
-//   • сотрудник открыл ссылку своего клуба /login?club=…;
+//   • сотрудник открыл ссылку своего клуба /login/adminpanel/<slug>
+//     (или код клуба на странице входа — тот же смысл, старый вид);
 //   • владелец ввёл на входе почту, которой регистрировал клуб.
 // Ни в одном из случаев cookie сама по себе никуда не пускает: она лишь
 // выбирает клуб, а дальше работает обычный вход по логину и паролю.
@@ -16,7 +17,7 @@ import express from "express";
 import path from "node:path";
 
 import { landingAtRoot, PUBLIC_DIR } from "./config.js";
-import { clubByCode, clubByEmail, statusFor } from "./hub/clubs.js";
+import { clubByCode, clubByEmail, clubBySlug, statusFor } from "./hub/clubs.js";
 import { hubNumber } from "./hub/db.js";
 import { mountHubAndAccount } from "./hub/mount.js";
 import { createAuthSession, sessionCookie } from "./services/auth.js";
@@ -102,14 +103,25 @@ export function createNetworkApp(hubDb, { tenants = createTenants(hubDb) } = {})
     },
   });
 
-  // Ссылка клуба для сотрудников: /login?club=<код>. Запомнили клуб —
-  // дальше обычная страница входа этого клуба.
+  // Читаемая ссылка клуба для сотрудников: /login/adminpanel/<название>.
+  // Именно её показывает кабинет — легко продиктовать и легко запомнить,
+  // в отличие от случайного кода. Запомнили клуб — дальше обычный вход.
+  app.get("/login/adminpanel/:slug", (req, res) => {
+    const club = clubBySlug(hubDb, req.params.slug);
+    // Неизвестный адрес — не на витрину: человек шёл на работу, а не
+    // читать про систему. Возвращаем на вход с понятной причиной.
+    if (!club) return res.redirect("/login?unknown_club=1");
+    res.setHeader("Set-Cookie", tenantCookie(club.code));
+    res.redirect("/login");
+  });
+
+  // Старый вид ссылки, по коду: /login?club=<код>. Оставлен для уже
+  // разошедшихся ссылок и для формы «войти по коду» на странице входа —
+  // код короче и его проще продиктовать вслух посимвольно.
   app.get("/login", (req, res, next) => {
     const code = String(req.query.club ?? "").trim();
     if (!code) return next();
     const club = clubByCode(hubDb, code);
-    // Неизвестный код — не на витрину: человек шёл на работу, а не
-    // читать про систему. Возвращаем на вход с понятной причиной.
     if (!club) return res.redirect("/login?unknown_club=1");
     res.setHeader("Set-Cookie", tenantCookie(club.code));
     res.redirect("/login");

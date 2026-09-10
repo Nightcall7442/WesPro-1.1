@@ -21,6 +21,46 @@ import { HUB_DATABASE_PATH } from "../config.js";
  */
 export const newClubCode = () => randomBytes(6).toString("hex");
 
+// Транслитерация для читаемого адреса клуба (/login/adminpanel/<slug>).
+// Имена клубов в сети чаще всего кириллические — без таблицы «Бильярд
+// Тетрис» превратился бы в пустую строку, а не в «biliard-tetris».
+const TRANSLIT = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh",
+  з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o",
+  п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts",
+  ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu",
+  я: "ya",
+  // Буквы узбекской кириллицы, которых нет в русской.
+  ў: "o", қ: "q", ғ: "g", ҳ: "h",
+};
+
+/** Название клуба → читаемый адрес в URL (a-z, 0-9, дефисы). */
+export function slugify(name) {
+  let out = "";
+  for (const ch of String(name ?? "").toLowerCase()) {
+    if (/[a-z0-9]/.test(ch)) out += ch;
+    else if (ch in TRANSLIT) out += TRANSLIT[ch];
+    else out += "-";
+  }
+  return out.replace(/-+/g, "-").replace(/^-|-$/g, "") || "club";
+}
+
+/**
+ * Свободный slug для клуба: базовый вариант, а если занят — с числом на
+ * конце («tetris», «tetris-2», …). excludeId — свой же клуб при
+ * переименовании не в счёт.
+ */
+export function uniqueClubSlug(db, name, excludeId = null) {
+  const base = slugify(name);
+  let candidate = base;
+  let n = 2;
+  for (;;) {
+    const row = db.prepare("SELECT id FROM clubs WHERE slug = ?").get(candidate);
+    if (!row || row.id === excludeId) return candidate;
+    candidate = `${base}-${n++}`;
+  }
+}
+
 /**
  * Добавляет колонку, если её ещё нет — безопасно для уже развёрнутой
  * базы (Railway хранит её на подключённом диске, `CREATE TABLE IF NOT
@@ -193,6 +233,18 @@ export function createHubDatabase(filePath = HUB_DATABASE_PATH) {
     .prepare("SELECT id FROM clubs WHERE code IS NULL OR code = ''")
     .all()) {
     setCode.run(newClubCode(), row.id);
+  }
+  // Читаемый адрес клуба (/login/adminpanel/<slug>) — тот же приём, что
+  // и с кодом: клубам, заведённым до появления slug, выдаём его здесь же.
+  ensureColumn(db, "clubs", "slug", "slug TEXT");
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_clubs_slug ON clubs (slug) WHERE slug IS NOT NULL"
+  );
+  const setSlug = db.prepare("UPDATE clubs SET slug = ? WHERE id = ?");
+  for (const row of db
+    .prepare("SELECT id, name FROM clubs WHERE slug IS NULL OR slug = ''")
+    .all()) {
+    setSlug.run(uniqueClubSlug(db, row.name, row.id), row.id);
   }
   // Одна и та же почта не может быть у двух клубов — иначе непонятно,
   // в чей кабинет входить. Пустая почта (клубы, заведённые вручную без

@@ -7,7 +7,7 @@
 
 import { randomBytes } from "node:crypto";
 
-import { hubNumber, newClubCode } from "./db.js";
+import { hubNumber, newClubCode, uniqueClubSlug } from "./db.js";
 import { ConflictError, NotFoundError } from "../services/errors.js";
 import { logHubEvent, HubEvent } from "./journal.js";
 
@@ -23,7 +23,7 @@ export function plusDays(days, from = null) {
 const CLUB_FIELDS = `
   c.id, c.name, c.city, c.owner_name, c.phone, c.email, c.note,
   c.plan_id, c.status, c.paid_until, c.grace_until, c.blocked_manually,
-  c.api_key, c.code, c.last_seen_at, c.app_version, c.tables_count, c.created_at,
+  c.api_key, c.code, c.slug, c.last_seen_at, c.app_version, c.tables_count, c.created_at,
   p.name AS plan_name, p.price_kopecks AS plan_price_kopecks,
   p.period_days AS plan_period_days,
   (SELECT COUNT(*) FROM club_payments pay WHERE pay.club_id = c.id) AS payments_count,
@@ -113,6 +113,7 @@ function toOut(club, { offlineHours }) {
         : Math.ceil((Date.parse(club.paid_until) - Date.now()) / 86400000),
     api_key: club.api_key,
     code: club.code ?? null,
+    slug: club.slug ?? null,
     last_seen_at: club.last_seen_at ?? null,
     // «Потерялся»: программа клуба давно не отмечалась на связи.
     offline: silentFor === null || silentFor > offlineHours,
@@ -173,6 +174,13 @@ export function clubByCode(db, code) {
   return db.prepare(`SELECT ${CLUB_FIELDS} ${CLUB_JOIN} WHERE c.code = ?`).get(value) ?? null;
 }
 
+/** Клуб по читаемому адресу (/login/adminpanel/<slug>). */
+export function clubBySlug(db, slug) {
+  const value = String(slug ?? "").trim().toLowerCase();
+  if (!value) return null;
+  return db.prepare(`SELECT ${CLUB_FIELDS} ${CLUB_JOIN} WHERE c.slug = ?`).get(value) ?? null;
+}
+
 /** Клуб по почте владельца — вход в программу по почте и паролю. */
 export function clubByEmail(db, email) {
   const value = String(email ?? "").trim().toLowerCase();
@@ -215,8 +223,8 @@ export function createClub(db, data, author = null) {
     .prepare(
       `INSERT INTO clubs
          (name, city, owner_name, phone, email, note, plan_id, status,
-          paid_until, api_key, code, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'trial', ?, ?, ?, ?)`
+          paid_until, api_key, code, slug, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'trial', ?, ?, ?, ?, ?)`
     )
     .run(
       name,
@@ -229,6 +237,7 @@ export function createClub(db, data, author = null) {
       paidUntil,
       randomBytes(24).toString("hex"),
       newClubCode(),
+      uniqueClubSlug(db, name),
       now()
     );
   const club = clubRow(db, Number(lastInsertRowid));

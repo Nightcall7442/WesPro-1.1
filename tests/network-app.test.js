@@ -147,6 +147,60 @@ test("неизвестный код клуба возвращает на вхо�
   assert.equal(tables.status, 401);
 });
 
+test("зарегистрированный клуб получает читаемую ссылку по названию", async (t) => {
+  const { hubDb, app } = makeNetwork(t);
+  await registerAndOpen(app, { name: "Бильярд Тетрис", email: "one@example.com" });
+
+  const { slug } = hubDb.prepare("SELECT slug FROM clubs WHERE email = ?").get("one@example.com");
+  assert.equal(slug, "bilyard-tetris");
+});
+
+test("клубы, чьи названия дают одинаковый адрес, получают разные адреса", async (t) => {
+  const { hubDb, app } = makeNetwork(t);
+  // Названия разные (иначе регистрация отклонит вторую как дубликат), но
+  // после очистки от знаков препинания превращаются в один и тот же slug.
+  await registerAndOpen(app, { name: "Тетрис", email: "one@example.com" });
+  await registerAndOpen(app, { name: "Тетрис!", email: "two@example.com" });
+
+  const first = hubDb.prepare("SELECT slug FROM clubs WHERE email = ?").get("one@example.com");
+  const second = hubDb.prepare("SELECT slug FROM clubs WHERE email = ?").get("two@example.com");
+  assert.equal(first.slug, "tetris");
+  assert.equal(second.slug, "tetris-2");
+});
+
+test("сотрудник заходит по читаемой ссылке /login/adminpanel/<название>", async (t) => {
+  const { hubDb, app } = makeNetwork(t);
+  const owner = await registerAndOpen(app, { name: "Тетрис", email: "one@example.com" });
+  await owner
+    .post("/api/users")
+    .send({ login: "kassir", name: "Кассир Иван", password: "1234", role: "cashier" });
+
+  const { slug } = hubDb.prepare("SELECT slug FROM clubs WHERE email = ?").get("one@example.com");
+  const cashier = supertest.agent(app);
+  const step = await cashier.get(`/login/adminpanel/${slug}`).redirects(0);
+  assert.equal(step.status, 302);
+  assert.equal(step.headers.location, "/login");
+
+  const login = await cashier.post("/api/auth/login").send({ login: "kassir", password: "1234" });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.club_name, "Тетрис");
+});
+
+test("неизвестная читаемая ссылка возвращает на вход с понятной причиной", async (t) => {
+  const { app } = makeNetwork(t);
+  const guest = supertest.agent(app);
+  const res = await guest.get("/login/adminpanel/net-takogo-kluba").redirects(0);
+  assert.equal(res.status, 302);
+  assert.match(res.headers.location, /unknown_club/);
+});
+
+test("в кабинете показана читаемая ссылка, а не код", async (t) => {
+  const { app } = makeNetwork(t);
+  const owner = await registerAndOpen(app, { name: "Тетрис", email: "one@example.com" });
+  const view = await owner.get("/account/api/account");
+  assert.equal(view.body.club.slug, "tetris");
+});
+
 test("кассир входит по коду клуба, без ссылки", async (t) => {
   const { hubDb, app } = makeNetwork(t);
   const owner = await registerAndOpen(app, { name: "Первый", email: "one@example.com" });
