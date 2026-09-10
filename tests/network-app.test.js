@@ -277,6 +277,13 @@ test("клуб не может перезапустить общий серве�
   assert.equal((await dev.get("/api/network")).status, 403);
 });
 
+test("кабинет в сети показывает кнопку «Открыть программу»", async (t) => {
+  const { app } = makeNetwork(t);
+  const owner = await registerAndOpen(app, { name: "Первый", email: "one@example.com" });
+  const view = await owner.get("/account/api/account");
+  assert.equal(view.body.network, true);
+});
+
 test("у каждого клуба свой файл базы", async (t) => {
   const { hubDb, app, dir } = makeNetwork(t);
   await registerAndOpen(app, { name: "Первый", email: "one@example.com" });

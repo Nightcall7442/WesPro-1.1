@@ -188,6 +188,17 @@ test("смена пароля требует верный старый паро�
   assert.equal(newLogin.status, 200);
 });
 
+test("в обычной установке кабинет не зовёт «Открыть программу»", async () => {
+  const { app } = makeHub();
+  const { agent } = await registerAgent(app);
+
+  // Программа клуба стоит у него на компьютере, а не на этом сервере:
+  // кнопка вела бы в никуда, поэтому кабинет её и не показывает.
+  const view = await agent.get("/account/api/account");
+  assert.equal(view.body.network, false);
+  assert.equal((await agent.get("/account/open")).status, 404);
+});
+
 test("выход завершает сессию кабинета", async () => {
   const { app } = makeHub();
   const { agent } = await registerAgent(app);

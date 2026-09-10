@@ -14,6 +14,10 @@ COPY . .
 ENV BILLIARDS_DATABASE_PATH=/data/billiards.db
 # База центральной панели сети клубов (подписки и оплаты) — отдельный файл.
 ENV WESPRO_HUB_DATABASE_PATH=/data/hub.db
+# Базы клубов сети (по файлу на клуб) — тоже на диске, а не в контейнере.
+# Работает только вместе с WESPRO_NETWORK=1; переменную ставят в панели
+# хостинга, чтобы этот же образ годился и для установки на один клуб.
+ENV WESPRO_CLUBS_DIR=/data/clubs
 RUN mkdir -p /data
 
 EXPOSE 8000

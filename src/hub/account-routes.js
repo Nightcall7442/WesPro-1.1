@@ -62,7 +62,10 @@ export function createAccountRouter(hubDb, { openProgram = null, onPasswordChang
   });
 
   router.get("/api/account", (req, res) => {
-    res.json(accountView(hubDb, req.accountClub.id));
+    // network — есть ли куда вести кнопке «Открыть программу». В обычной
+    // установке программа стоит на компьютере клуба, а не на этом
+    // сервере, и кнопка вела бы в никуда — кабинет её не показывает.
+    res.json({ ...accountView(hubDb, req.accountClub.id), network: Boolean(openProgram) });
   });
 
   router.post("/api/password", (req, res) => {

@@ -31,7 +31,8 @@ async function api(url, options = {}) {
 }
 
 async function load() {
-  const { club, payments } = await api("/account/api/account");
+  const { club, payments, network } = await api("/account/api/account");
+  document.getElementById("program-panel").hidden = !network;
 
   document.getElementById("club-title").textContent = club.name;
   document.title = `${club.name} — кабинет клуба`;
