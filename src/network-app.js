@@ -108,7 +108,9 @@ export function createNetworkApp(hubDb, { tenants = createTenants(hubDb) } = {})
     const code = String(req.query.club ?? "").trim();
     if (!code) return next();
     const club = clubByCode(hubDb, code);
-    if (!club) return res.redirect("/");
+    // Неизвестный код — не на витрину: человек шёл на работу, а не
+    // читать про систему. Возвращаем на вход с понятной причиной.
+    if (!club) return res.redirect("/login?unknown_club=1");
     res.setHeader("Set-Cookie", tenantCookie(club.code));
     res.redirect("/login");
   });
@@ -122,8 +124,8 @@ export function createNetworkApp(hubDb, { tenants = createTenants(hubDb) } = {})
     if (!club) {
       return res.status(401).json({
         detail:
-          "Введите почту, на которую зарегистрирован клуб, " +
-          "или откройте ссылку своего клуба",
+          "Это вход по почте владельца клуба. Сотрудникам — кнопка " +
+          "«Войти по коду клуба» ниже: код даёт владелец",
       });
     }
     req.club = club;

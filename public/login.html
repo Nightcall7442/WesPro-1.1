@@ -88,6 +88,19 @@
       <p class="sub" id="login-register" hidden style="margin: 4px 0 0">
         Ещё нет клуба? <a href="/account/register">Зарегистрировать</a>
       </p>
+      <!-- Кассир не знает почты владельца, а ссылку клуба легко потерять.
+           Код клуба — то же самое, что ссылка, только его можно продиктовать. -->
+      <p class="sub" id="club-code-toggle" hidden style="margin: 0">
+        <a href="#" id="club-code-link">Сотрудник клуба? Войти по коду клуба</a>
+      </p>
+      <div id="club-code-box" hidden>
+        <label class="field">Код клуба
+          <input id="club-code" type="text" autocomplete="off" placeholder="например 6d2c7e0c0e6c">
+        </label>
+        <button type="button" id="club-code-go" class="primary" style="margin-top:10px">
+          Перейти к моему клубу
+        </button>
+      </div>
     </form>
   </div>
   <script>
@@ -109,17 +122,50 @@
           logo.hidden = false;
         }
         // Сеть клубов, а клуб ещё не выбран: браузер не знает, чей это
-        // вход, поэтому владелец называет себя почтой. Сотрудникам
-        // остаётся ссылка их клуба — её даёт владелец в кабинете.
+        // вход, поэтому владелец называет себя почтой, а сотрудник —
+        // кодом клуба (или разовым переходом по ссылке из кабинета).
         if (brand.network) {
           document.getElementById("login-field").firstChild.textContent = "Почта";
           document.getElementById("login").type = "email";
           document.getElementById("login-sub").textContent = "Вход для владельца клуба";
           document.getElementById("login-register").hidden = false;
+          document.getElementById("club-code-toggle").hidden = false;
+          if (new URLSearchParams(location.search).has("unknown_club")) {
+            document.getElementById("login-error").textContent =
+              "Клуб с таким кодом не найден — проверьте код у владельца";
+            showClubCode();
+          }
         }
       } catch {
         // Нет связи с сервером — остаётся название по умолчанию.
       }
+    })();
+
+    // Вход по коду клуба: код заменяет ссылку /login?club=… — его можно
+    // продиктовать по телефону, а ссылку кассир на новом устройстве
+    // обычно найти не может.
+    function showClubCode() {
+      document.getElementById("club-code-toggle").hidden = true;
+      document.getElementById("club-code-box").hidden = false;
+      document.getElementById("club-code").focus();
+    }
+
+    (() => {
+      document.getElementById("club-code-link").addEventListener("click", (e) => {
+        e.preventDefault();
+        showClubCode();
+      });
+      const go = () => {
+        const code = document.getElementById("club-code").value.trim();
+        if (code) window.location.href = `/login?club=${encodeURIComponent(code)}`;
+      };
+      document.getElementById("club-code-go").addEventListener("click", go);
+      document.getElementById("club-code").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          go();
+        }
+      });
     })();
 
     // Глазок у пароля: показать/скрыть набранное.

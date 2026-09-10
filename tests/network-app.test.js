@@ -130,7 +130,40 @@ test("незнакомая почта: понятная подсказка, а �
     .post("/api/auth/login")
     .send({ login: "нет-такого@example.com", password: PASSWORD });
   assert.equal(login.status, 401);
-  assert.match(login.body.detail, /ссылку своего клуба/);
+  assert.match(login.body.detail, /коду клуба/);
+});
+
+test("неизвестный код клуба возвращает на вход, а не на витрину", async (t) => {
+  const { app } = makeNetwork(t);
+  const guest = supertest.agent(app);
+  // Человек шёл на работу, а не читать описание системы: он должен
+  // увидеть, что ошибся кодом, и попробовать ещё раз.
+  const res = await guest.get("/login?club=нет-такого-кода").redirects(0);
+  assert.equal(res.status, 302);
+  assert.match(res.headers.location, /unknown_club/);
+
+  // И устройство не оказалось привязано к чужому клубу.
+  const tables = await guest.get("/api/tables");
+  assert.equal(tables.status, 401);
+});
+
+test("кассир входит по коду клуба, без ссылки", async (t) => {
+  const { hubDb, app } = makeNetwork(t);
+  const owner = await registerAndOpen(app, { name: "Первый", email: "one@example.com" });
+  await owner
+    .post("/api/users")
+    .send({ login: "kassir", name: "Кассир Иван", password: "1234", role: "cashier" });
+
+  const { code } = hubDb.prepare("SELECT code FROM clubs WHERE email = ?").get("one@example.com");
+  const cashier = supertest.agent(app);
+  // Ровно то, что делает страница входа с введённым кодом.
+  const step = await cashier.get(`/login?club=${code}`).redirects(0);
+  assert.equal(step.headers.location, "/login");
+
+  const login = await cashier.post("/api/auth/login").send({ login: "kassir", password: "1234" });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.role, "cashier");
+  assert.equal(login.body.club_name, "Первый");
 });
 
 test("сотрудник заходит по ссылке клуба своим логином и паролем", async (t) => {
