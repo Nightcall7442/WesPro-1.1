@@ -719,6 +719,30 @@
         </div>
       </div>
 
+      <div class="settings-card" data-owner-only hidden>
+        <h3>Подписка</h3>
+        <p class="hint">
+          Ключ доступа выдаётся в личном кабинете клуба на сайте WesPro
+          (кнопка «Регистрация» на <a href="/about" target="_blank">wespro.uz</a>,
+          дальше — раздел «Ключ доступа для программы клуба»). Вставьте его
+          сюда, чтобы программа сама сообщала хабу, что клуб на связи, и
+          показывала статус подписки прямо здесь.
+        </p>
+        <div class="settings-grid">
+          <label class="field">Адрес хаба
+            <input id="set-sub-url" type="text" autocomplete="off" placeholder="https://www.wespro.uz">
+          </label>
+          <label class="field">Ключ клуба
+            <input id="set-sub-key" type="text" autocomplete="off" placeholder="вставьте из личного кабинета">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="save-sub-btn" class="primary">Сохранить</button>
+          <button id="test-sub-btn" class="mini">Проверить подписку</button>
+        </div>
+        <div id="sub-status" class="hint status-line" style="margin-top:10px"></div>
+      </div>
+
       <div class="settings-card">
         <h3>Экран для гостей</h3>
         <p class="hint">

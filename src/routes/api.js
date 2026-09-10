@@ -95,6 +95,7 @@ import {
 } from "../services/shifts.js";
 import { overview, revenueReport, tableLoad } from "../services/stats.js";
 import { payrollReport } from "../services/payroll.js";
+import { checkSubscriptionNow } from "../services/subscription.js";
 import {
   remindUpcomingBookings,
   sendTelegramTest,
@@ -1063,6 +1064,20 @@ export function createApiRouter(db) {
     try {
       requirePermission(db, req, "manage_settings");
       res.json(await sendTelegramTest(db, req.user));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // --- Подписка: связь с центральной панелью сети WesPro ------------------
+
+  // Кнопка «Проверить подписку»: живой запрос к хабу, а не что-то
+  // закэшированное — открытие вкладки «Настройки» само по себе хаб не
+  // дёргает (незачем ждать сеть каждый раз, когда кассир туда заходит).
+  router.post("/subscription/check", async (req, res, next) => {
+    try {
+      requirePermission(db, req, "manage_settings");
+      res.json(await checkSubscriptionNow(db));
     } catch (error) {
       next(error);
     }

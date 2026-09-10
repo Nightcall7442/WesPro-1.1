@@ -5809,6 +5809,9 @@ async function refreshSettings() {
   document.getElementById("set-tg-chat").value = settings.telegram_chat_id;
   document.getElementById("set-tg-before").value = settings.telegram_before_minutes;
   await renderTelegramStatus().catch(() => {});
+  document.getElementById("set-sub-url").value = settings.wespro_hub_url;
+  document.getElementById("set-sub-key").value = settings.wespro_club_key;
+  renderSubscriptionStatus(settings.wespro_club_key);
   await renderDemoStatus().catch(() => {});
   await renderNetworkList().catch(() => {}); // сеть — справка, без неё можно
   await renderDiagnostics().catch(() => {}); // диагностика тоже необязательна
@@ -6355,6 +6358,63 @@ async function testTelegram() {
     showToast("Проверочное сообщение отправлено — посмотрите в чат", true);
   } catch (error) {
     showToast(error.message);
+  }
+}
+
+// --- Подписка: связь с центральной панелью сети WesPro --------------------
+
+const SUBSCRIPTION_STATUS_LABELS = {
+  trial: "пробный период",
+  active: "активна",
+  overdue: "просрочена",
+  blocked: "заблокирован",
+  archived: "в архиве",
+};
+
+/** Честная строка «настроено / нет» — без похода в сеть (как у Telegram). */
+function renderSubscriptionStatus(clubKey) {
+  const box = document.getElementById("sub-status");
+  if (!box) return;
+  box.replaceChildren(
+    ...(clubKey?.trim()
+      ? withIcon("check", "Ключ сохранён — нажмите «Проверить подписку»")
+      : withIcon("warning", "Ключ ещё не введён — подписка не проверяется"))
+  );
+}
+
+async function saveSubscriptionSettings() {
+  try {
+    const settings = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        wespro_hub_url: document.getElementById("set-sub-url").value.trim(),
+        wespro_club_key: document.getElementById("set-sub-key").value.trim(),
+      }),
+    });
+    showToast("Настройки подписки сохранены", true);
+    renderSubscriptionStatus(settings.wespro_club_key);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function testSubscription() {
+  const box = document.getElementById("sub-status");
+  try {
+    const status = await api("/api/subscription/check", { method: "POST" });
+    if (!status.connected) {
+      box.replaceChildren(...withIcon("warning", status.error ?? "Не удалось связаться с хабом"));
+      return;
+    }
+    const label = SUBSCRIPTION_STATUS_LABELS[status.status] ?? status.status;
+    const parts = [`Подписка: ${label}`];
+    if (status.plan_name) parts.push(`тариф «${status.plan_name}»`);
+    if (typeof status.days_left === "number") {
+      parts.push(status.days_left >= 0 ? `осталось ${status.days_left} дн.` : "срок истёк");
+    }
+    box.replaceChildren(...withIcon(status.blocked ? "warning" : "check", parts.join(", ")));
+  } catch (error) {
+    box.replaceChildren(...withIcon("warning", error.message));
   }
 }
 
@@ -7073,6 +7133,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("demo-clear").addEventListener("click", clearDemo);
   document.getElementById("save-tg-btn").addEventListener("click", saveTelegramSettings);
   document.getElementById("test-tg-btn").addEventListener("click", testTelegram);
+  document.getElementById("save-sub-btn").addEventListener("click", saveSubscriptionSettings);
+  document.getElementById("test-sub-btn").addEventListener("click", testSubscription);
   document.getElementById("open-board").addEventListener("click", () => {
     window.open("/board", "_blank", "noopener");
   });
