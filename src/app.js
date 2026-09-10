@@ -5,6 +5,8 @@ import express from "express";
 import path from "node:path";
 
 import { landingAtRoot, PUBLIC_DIR } from "./config.js";
+import { accountTokenFromCookie, clubByToken } from "./hub/account.js";
+import { createAccountRouter } from "./hub/account-routes.js";
 import { hubTokenFromCookie, hubUserByToken } from "./hub/auth.js";
 import { createHubRouter } from "./hub/routes.js";
 import { createApiRouter } from "./routes/api.js";
@@ -95,6 +97,28 @@ export function createApp(db, hubDb = null) {
       res.sendFile(path.join(PUBLIC_DIR, "hub-login.html"));
     });
     app.use("/hub", createHubRouter(hubDb));
+
+    // --- Личный кабинет владельца клуба ------------------------------------
+    // Тоже своя cookie (Path=/account), поэтому и вход, и API — на своём
+    // префиксе: cookie с одним путём на другой браузер не пошлёт.
+    app.use("/account", (req, res, next) => {
+      req.accountToken = accountTokenFromCookie(req.headers.cookie);
+      req.accountClub = clubByToken(hubDb, req.accountToken);
+      next();
+    });
+    app.get("/account", (req, res) => {
+      if (!req.accountClub) return res.redirect("/account/login");
+      res.sendFile(path.join(PUBLIC_DIR, "account.html"));
+    });
+    app.get("/account/login", (req, res) => {
+      if (req.accountClub) return res.redirect("/account");
+      res.sendFile(path.join(PUBLIC_DIR, "account-login.html"));
+    });
+    app.get("/account/register", (req, res) => {
+      if (req.accountClub) return res.redirect("/account");
+      res.sendFile(path.join(PUBLIC_DIR, "account-register.html"));
+    });
+    app.use("/account", createAccountRouter(hubDb));
   }
 
   // Всё API, кроме входа и названия/логотипа клуба (их показывает страница

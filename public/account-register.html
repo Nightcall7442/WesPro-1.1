@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Регистрация клуба — WesPro</title>
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    onload="this.onload=null;this.rel='stylesheet'">
+  <script>
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("billiards_theme") === "dark" ? "dark" : "light";
+    } catch (e) {
+      document.documentElement.dataset.theme = "light";
+    }
+  </script>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/landing.css">
+  <style>
+    .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .auth-card {
+      width: 100%; max-width: 420px;
+      background: var(--glass-strong);
+      backdrop-filter: blur(24px) saturate(1.8);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      border: 1px solid var(--glass-border);
+      border-radius: 24px; box-shadow: var(--shadow);
+      padding: 32px 28px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .auth-card h1 {
+      margin: 0; font-family: var(--font-display); font-size: 1.55rem; font-weight: 800;
+      text-align: center; letter-spacing: -0.02em; color: var(--text);
+    }
+    .auth-card .sub { text-align: center; color: var(--muted); font-size: 0.9rem; margin: -4px 0 8px; }
+    .auth-error { color: var(--red); font-size: 0.88rem; font-weight: 600; text-align: center; min-height: 1.2em; margin: 0; }
+    .auth-switch { text-align: center; font-size: 0.88rem; color: var(--muted); margin-top: 4px; }
+    .auth-switch a { color: var(--accent-ink); font-weight: 700; text-decoration: none; }
+    .auth-back { text-align: center; margin-bottom: 4px; }
+    .auth-back a { color: var(--muted); font-size: 0.85rem; text-decoration: none; }
+    .auth-back a:hover { color: var(--text); }
+  </style>
+</head>
+<body class="landing">
+  <div class="auth-wrap">
+    <form class="auth-card" id="register-form">
+      <div class="auth-back"><a href="/about">← На главную</a></div>
+      <h1>Регистрация клуба</h1>
+      <p class="sub">Пробный период начнётся сразу после регистрации</p>
+      <label class="field">Название клуба
+        <input id="club-name" type="text" placeholder="Например: WesPro Чиланзар" required autofocus>
+      </label>
+      <label class="field">Ваше имя и фамилия
+        <input id="owner-name" type="text" placeholder="Имя Фамилия" autocomplete="name" required>
+      </label>
+      <label class="field">Почта
+        <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required>
+      </label>
+      <label class="field">Пароль
+        <span class="password-row">
+          <input id="password" type="password" autocomplete="new-password" minlength="8" required>
+          <button type="button" id="password-eye" class="password-eye" title="Показать пароль" aria-label="Показать пароль">
+            <i class="ic ic-eye" aria-hidden="true"></i>
+          </button>
+        </span>
+      </label>
+      <p class="hint" style="margin:-4px 0 0;">Минимум 8 символов</p>
+      <p class="auth-error" id="auth-error"></p>
+      <button type="submit" class="btn btn-primary btn-lg" id="submit-btn">Создать клуб</button>
+      <p class="auth-switch">Уже зарегистрированы? <a href="/account/login">Войти</a></p>
+    </form>
+  </div>
+  <script>
+    "use strict";
+    (() => {
+      const input = document.getElementById("password");
+      const eye = document.getElementById("password-eye");
+      eye.addEventListener("click", () => {
+        const shown = input.type === "text";
+        input.type = shown ? "password" : "text";
+        eye.classList.toggle("on", !shown);
+        input.focus();
+      });
+    })();
+
+    document.getElementById("register-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorBox = document.getElementById("auth-error");
+      const submitBtn = document.getElementById("submit-btn");
+      errorBox.textContent = "";
+      submitBtn.disabled = true;
+      try {
+        const response = await fetch("/account/api/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: document.getElementById("club-name").value.trim(),
+            owner_name: document.getElementById("owner-name").value.trim(),
+            email: document.getElementById("email").value.trim(),
+            password: document.getElementById("password").value,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          errorBox.textContent = body.detail ?? "Не удалось зарегистрироваться";
+          submitBtn.disabled = false;
+          return;
+        }
+        window.location.href = "/account";
+      } catch (err) {
+        errorBox.textContent = "Сервер недоступен";
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

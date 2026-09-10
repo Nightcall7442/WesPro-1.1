@@ -12,6 +12,18 @@ import { DatabaseSync } from "node:sqlite";
 
 import { HUB_DATABASE_PATH } from "../config.js";
 
+/**
+ * Добавляет колонку, если её ещё нет — безопасно для уже развёрнутой
+ * базы (Railway хранит её на подключённом диске, `CREATE TABLE IF NOT
+ * EXISTS` новые колонки в существующую таблицу не добавит).
+ */
+function ensureColumn(db, table, column, ddl) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS hub_users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,6 +37,16 @@ CREATE TABLE IF NOT EXISTS hub_users (
 CREATE TABLE IF NOT EXISTS hub_sessions (
   token      TEXT PRIMARY KEY,
   user_id    INTEGER NOT NULL REFERENCES hub_users (id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+-- Сессии владельцев клубов (самостоятельная регистрация на сайте).
+-- Отдельно от hub_sessions: это клиент, а не сотрудник панели сети —
+-- ему открыт только его собственный кабинет, а не вся сеть.
+CREATE TABLE IF NOT EXISTS club_sessions (
+  token      TEXT PRIMARY KEY,
+  club_id    INTEGER NOT NULL REFERENCES clubs (id) ON DELETE CASCADE,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
@@ -146,6 +168,16 @@ export function createHubDatabase(filePath = HUB_DATABASE_PATH) {
   const db = new DatabaseSync(filePath, { enableForeignKeyConstraints: true });
   db.exec("PRAGMA journal_mode = WAL");
   db.exec(SCHEMA);
+  // Самостоятельная регистрация клуба на сайте: пароль для входа по
+  // почте. NULL — клуб завели в панели вручную, входа по почте у него
+  // пока нет (владелец сервиса может задать пароль позже).
+  ensureColumn(db, "clubs", "password_hash", "password_hash TEXT");
+  // Одна и та же почта не может быть у двух клубов — иначе непонятно,
+  // в чей кабинет входить. Пустая почта (клубы, заведённые вручную без
+  // неё) индексом не ограничена — таких может быть сколько угодно.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_clubs_email ON clubs (email) WHERE email <> ''"
+  );
   const insert = db.prepare(
     "INSERT INTO hub_settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING"
   );
