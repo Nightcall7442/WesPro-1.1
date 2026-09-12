@@ -308,6 +308,28 @@ main { padding: 28px 24px 48px; max-width: 1100px; margin: 0 auto; }
 .dot-expired { background: var(--red); }
 .dot-booked { background: var(--orange-text); }
 
+/* Полоска устройств в шапке зала. */
+.devices-strip { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.device-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  border-radius: 9px;
+  border: 0.5px solid var(--hairline);
+  background: rgba(var(--ink), 0.06);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.device-dot .ic { width: 15px; height: 15px; }
+.device-dot:hover { background: rgba(var(--accent-rgb), 0.1); }
+.device-dot.on { color: var(--green-text); border-color: var(--green-text); }
+.device-dot.err { color: var(--red); border-color: var(--red); }
+
 .club-load {
   margin-left: auto;
   font-size: 0.86rem;

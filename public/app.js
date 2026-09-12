@@ -1698,9 +1698,36 @@ async function refreshDashboard() {
   state.tariffs = tariffs;
   state.autoTariffId = auto.tariff_id;
   state.plan = plan;
-  state.hallDevices = devices; // для плиток устройств на плане
+  state.hallDevices = devices; // для плиток на плане и полоски в шапке
   state.fetchedAt = performance.now();
   renderTables();
+  renderDevicesStrip(devices);
+}
+
+/**
+ * Полоска устройств в шапке зала: по иконке на устройство, цвет —
+ * состояние (зелёная — работает, красная — реле не отвечает), у решётки
+ * рядом процент. Подробности — во всплывающей подсказке, клик —
+ * управление. Места почти не занимает, зато видно всё сразу.
+ */
+function renderDevicesStrip(devices) {
+  const strip = document.getElementById("devices-strip");
+  strip.replaceChildren(
+    ...devices.map((device) => {
+      const meta = DEVICE_TYPES[device.type] ?? DEVICE_TYPES.exhaust;
+      const btn = document.createElement("button");
+      btn.className =
+        `device-dot${device.is_on ? " on" : ""}${device.relay_error ? " err" : ""}`;
+      btn.title = `${device.name}: ${deviceStatusText(device, device.switches_in_seconds)}`;
+      btn.append(icon(meta.ic));
+      if (device.type === "damper" && device.position && device.positions.length > 1) {
+        btn.append(`${device.position}%`);
+      }
+      btn.addEventListener("click", () => openDeviceControl(device));
+      return btn;
+    })
+  );
+  strip.hidden = devices.length === 0;
 }
 
 // ------------------------------------------- устройства зала (вытяжка и т. п.)
