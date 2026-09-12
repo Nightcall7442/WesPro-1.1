@@ -1,10 +1,47 @@
 // Конфигурация приложения. Значения можно переопределить переменными
 // окружения, чтобы менять поведение без правки кода.
 
+import fs from "node:fs";
 import path from "node:path";
+import sea from "node:sea";
 import { fileURLToPath } from "node:url";
 
-export const ROOT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+// Программа может быть собрана в один файл WesPro.exe (npm run build:exe):
+// тогда её «папка» — папка, где лежит exe, а страницы интерфейса зашиты
+// внутрь и распаковываются рядом при запуске.
+export const IS_EXE = sea.isSea();
+
+export const ROOT_DIR = IS_EXE
+  ? path.dirname(process.execPath)
+  : path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+/** Версия программы: из package.json, а в exe — зашитая при сборке. */
+function readVersion() {
+  // eslint-disable-next-line no-undef -- подставляется сборкой exe
+  if (typeof __WESPRO_VERSION__ !== "undefined") return __WESPRO_VERSION__;
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ROOT_DIR, "package.json"), "utf8")).version;
+  } catch {
+    return "неизвестна";
+  }
+}
+export const APP_VERSION = readVersion();
+
+/**
+ * В exe страницы интерфейса зашиты как ресурсы; Express раздаёт их с
+ * диска, поэтому при запуске они распаковываются в папку public рядом с
+ * exe (перезаписываются каждый раз — так обновление exe обновляет и их).
+ */
+function unpackPublicAssets() {
+  const target = path.join(ROOT_DIR, "public");
+  const manifest = JSON.parse(Buffer.from(sea.getAsset("public-manifest.json")).toString("utf8"));
+  for (const name of manifest) {
+    const file = path.join(target, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, Buffer.from(sea.getAsset(`public/${name}`)));
+  }
+  return target;
+}
 
 export const DATABASE_PATH =
   process.env.BILLIARDS_DATABASE_PATH ?? path.join(ROOT_DIR, "billiards.db");
@@ -41,7 +78,12 @@ export const PORT = Number(process.env.PORT ?? 8000);
 // В тестах отключается: BILLIARDS_SEED=0.
 export const SEED_INITIAL_DATA = process.env.BILLIARDS_SEED !== "0";
 
-export const PUBLIC_DIR = path.join(ROOT_DIR, "public");
+export const PUBLIC_DIR = IS_EXE ? unpackPublicAssets() : path.join(ROOT_DIR, "public");
+
+// Снимки баз клубов, которые работают у себя (exe) и присылают копию
+// базы в сеть: по ним панель показывает такой клуб так же, как облачный.
+export const MIRRORS_DIR =
+  process.env.WESPRO_MIRRORS_DIR ?? path.join(ROOT_DIR, "data", "mirrors");
 
 // Что показывать на корневом адресе неавторизованному гостю: описание
 // системы (по умолчанию) или сразу форму входа.

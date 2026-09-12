@@ -6476,6 +6476,7 @@ async function refreshSettings() {
   await renderTelegramStatus().catch(() => {});
   document.getElementById("set-sub-url").value = settings.wespro_hub_url;
   document.getElementById("set-sub-key").value = settings.wespro_club_key;
+  refreshSyncStatus().catch(() => {});
   renderSubscriptionStatus(settings.wespro_club_key);
   await renderDemoStatus().catch(() => {});
   await renderNetworkList().catch(() => {}); // сеть — справка, без неё можно
@@ -7060,6 +7061,44 @@ async function saveSubscriptionSettings() {
     renderSubscriptionStatus(settings.wespro_club_key);
   } catch (error) {
     showToast(error.message);
+  }
+}
+
+/** Строка «синхронизация с сетью»: когда были на связи, когда уехал снимок. */
+function renderSyncStatus(status) {
+  const box = document.getElementById("sync-status");
+  if (!box) return;
+  if (!status.configured) {
+    box.replaceChildren(...withIcon("warning", "Синхронизация выключена: нет ключа клуба"));
+    return;
+  }
+  const time = (iso) => (iso ? new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) : "ещё не было");
+  if (status.error) {
+    box.replaceChildren(...withIcon("warning", `Нет связи с сетью WesPro: ${status.error}. Последний снимок: ${time(status.last_snapshot_at)}`));
+    return;
+  }
+  box.replaceChildren(
+    ...withIcon(
+      status.pending ? "warning" : "check",
+      `На связи ${time(status.last_ping_at)} · снимок базы ${time(status.last_snapshot_at)}` +
+        (status.pending ? " · есть несинхронизированное" : " · всё синхронизировано")
+    )
+  );
+}
+
+async function refreshSyncStatus() {
+  renderSyncStatus(await api("/api/sync/status"));
+}
+
+async function syncNow() {
+  const btn = document.getElementById("sync-now-btn");
+  btn.disabled = true;
+  try {
+    renderSyncStatus(await api("/api/sync/now", { method: "POST" }));
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -7992,6 +8031,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     .getElementById("save-settings")
     .addEventListener("click", saveConnectionSettings);
   document.getElementById("load-devices").addEventListener("click", loadDevices);
+  document.getElementById("sync-now-btn").addEventListener("click", syncNow);
 
   setInterval(tick, TICK_MS);
   setInterval(() => {

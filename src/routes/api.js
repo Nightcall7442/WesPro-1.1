@@ -110,6 +110,7 @@ import {
 import { overview, revenueReport, tableLoad } from "../services/stats.js";
 import { payrollReport } from "../services/payroll.js";
 import { checkSubscriptionNow } from "../services/subscription.js";
+import { runSync, syncStatus } from "../services/sync.js";
 import {
   remindUpcomingBookings,
   sendTelegramTest,
@@ -1089,6 +1090,22 @@ export function createApiRouter(db) {
     try {
       requireDeveloper(req);
       res.json(await syncLighting(db));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Синхронизация с сетью WesPro (клуб у себя, exe): когда были на связи,
+  // когда уехал снимок, есть ли несинхронизированное.
+  router.get("/sync/status", (req, res) => {
+    requirePermission(db, req, "manage_settings");
+    res.json(syncStatus(db));
+  });
+
+  router.post("/sync/now", async (req, res, next) => {
+    try {
+      requirePermission(db, req, "manage_settings");
+      res.json(await runSync(db, { force: true }));
     } catch (error) {
       next(error);
     }

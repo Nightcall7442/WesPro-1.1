@@ -8,23 +8,14 @@
 // POST /hub/api/agent/ping), как и договаривались в README. Пока ключ
 // не введён — функция просто выключена, как Telegram-напоминания.
 
-import fs from "node:fs";
-import path from "node:path";
-
-import { ROOT_DIR } from "../config.js";
+import { APP_VERSION } from "../config.js";
 import { ConflictError } from "./errors.js";
-import { getSettings } from "./settings.js";
+import { enabledFeatures, getSettings, setFeatures } from "./settings.js";
 
 /** Сколько ждём ответ хаба: интернет в клубе бывает медленный или его нет вовсе. */
 const TIMEOUT_MS = 10000;
 
-let appVersion = "неизвестна";
-try {
-  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, "package.json"), "utf8"));
-  appVersion = pkg.version ?? appVersion;
-} catch {
-  // package.json не прочитался — версия не критична для самой проверки.
-}
+const appVersion = APP_VERSION;
 
 /** Настройки связи с хабом или null, если ключ ещё не введён. */
 export function hubConfig(db) {
@@ -69,6 +60,18 @@ export async function checkSubscription(db) {
       return { configured: true, connected: false, error: `Хаб ответил ошибкой ${response.status}` };
     }
     const data = await response.json();
+    // Панель сети решает, какие новшества клубу включены (обновления по
+    // клубам): применяем то, что прислали, — так «версия» офлайн-клуба
+    // тоже ставится из панели.
+    if (data.features && typeof data.features === "object") {
+      // Пишем только если что-то отличается: лишняя запись — лишний
+      // снимок базы в сеть.
+      const current = enabledFeatures(db);
+      const patch = Object.fromEntries(
+        Object.entries(data.features).filter(([key, value]) => key in current && current[key] !== Boolean(value))
+      );
+      if (Object.keys(patch).length) setFeatures(db, patch);
+    }
     return { configured: true, connected: true, checked_at: new Date().toISOString(), ...data };
   } catch (error) {
     // Нет интернета, хаб недоступен, неверный адрес — для клуба это не

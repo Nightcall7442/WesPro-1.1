@@ -790,6 +790,12 @@
           <button id="test-sub-btn" class="mini">Проверить подписку</button>
         </div>
         <div id="sub-status" class="hint status-line" style="margin-top:10px"></div>
+        <!-- Клуб у себя (exe) синхронизируется с сетью раз в минуту, когда
+             есть интернет: подписка, новшества и снимок базы. -->
+        <div class="settings-actions" style="margin-top:12px">
+          <button id="sync-now-btn" class="mini">Синхронизировать сейчас</button>
+          <span id="sync-status" class="hint status-line"></span>
+        </div>
         <p class="hint" style="margin-top:10px">
           Оплата, история платежей и смена пароля владельца —
           в <a href="/account" target="_blank">личном кабинете клуба</a>.

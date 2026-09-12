@@ -561,6 +561,11 @@ function buildClubTile(club) {
   }
   tags.append(subscriptionTag(club));
   if (club.plan_name) tags.append(el("span", "club-tag", club.plan_name));
+  if (live?.mirror) {
+    const tag = el("span", "club-tag", `снимок ${new Date(live.snapshot_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`);
+    tag.title = "Клуб работает у себя и присылает снимок базы, когда есть интернет";
+    tags.append(tag);
+  }
   if (live?.version) {
     const v = live.version;
     const tag = el("span", `club-tag ${v.current ? "ok" : "warn"}`, `версия ${v.version}`);
@@ -754,13 +759,18 @@ async function loadClubPage() {
 
   const actions = document.getElementById("club-page-actions");
   actions.replaceChildren();
-  if (program) {
+  if (program && !program.mirror) {
     const open = el("a", "primary btn-link", "Войти разработчиком");
     open.title = "Вход в программу клуба своим аккаунтом поддержки; клуб увидит предупреждение";
     open.href = `/hub/api/clubs/${id}/program/open`;
     open.target = "_blank";
     open.rel = "noopener";
     actions.append(open);
+  } else if (program?.mirror) {
+    const note = el("span", "club-tag");
+    note.textContent = `Клуб у себя · снимок ${new Date(program.snapshot_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+    note.title = "Клуб работает на своём компьютере и присылает снимок базы, когда есть интернет. Войти в него — ключом поддержки.";
+    actions.append(note);
   }
   actions.append(
     button("Оплата", "mini", () => openPaymentModal(club)),
@@ -949,6 +959,10 @@ async function buildStaffTab(clubId) {
   );
   const table = el("table", "hub-table");
   const reload = () => loadClubPage();
+  const mirror = Boolean(state.clubProgram?.mirror);
+  if (mirror) {
+    panel.append(el("p", "hint", "Клуб работает у себя: панель видит снимок его базы. Пароли и доступ меняют в самой программе клуба."));
+  }
   renderTable(
     table,
     [
@@ -961,6 +975,7 @@ async function buildStaffTab(clubId) {
         className: "row-actions-cell",
         render: (u) => {
           const wrap = el("div", "row-actions");
+          if (mirror) return wrap;
           wrap.append(
             button("Новый пароль", "mini", () => openPasswordModal(clubId, u, reload)),
             button(
@@ -1114,10 +1129,11 @@ function buildDangerTab(club, program) {
     shift.append(el("h2", null, "Смена"));
     shift.append(
       el("p", "hint", program.shift
-        ? `Открыта: ${program.shift.cashier} с ${dateTime(program.shift.opened_at)}. Закрыть можно отсюда — от имени того, кто открывал, с пометкой панели сети.`
+        ? `Открыта: ${program.shift.cashier} с ${dateTime(program.shift.opened_at)}.` +
+          (program.mirror ? " Клуб работает у себя — закрыть смену можно только в его программе." : " Закрыть можно отсюда — от имени того, кто открывал, с пометкой панели сети.")
         : "Открытой смены нет.")
     );
-    if (program.shift) {
+    if (program.shift && !program.mirror) {
       shift.append(
         actionsRow(
           button("Закрыть смену", "mini danger", guard(async () => {

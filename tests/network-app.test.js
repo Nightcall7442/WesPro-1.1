@@ -11,8 +11,16 @@ import { test } from "node:test";
 
 import supertest from "supertest";
 
+import http from "node:http";
+
+import { createApp } from "../src/app.js";
+import { createDatabase } from "../src/db.js";
 import { createHubDatabase } from "../src/hub/db.js";
+import { createMirrors } from "../src/hub/mirrors.js";
 import { createNetworkApp } from "../src/network-app.js";
+import { saveSettings, enabledFeatures } from "../src/services/settings.js";
+import { runSync, syncStatus } from "../src/services/sync.js";
+import { createUser } from "../src/services/users.js";
 import { createTenants } from "../src/tenants.js";
 
 const PASSWORD = "parol12345";
@@ -562,4 +570,83 @@ test("новшества включаются каждому клубу отде
   const after = (await boss.get(`/hub/api/clubs/${tetrisId}/program/features`)).body;
   assert.equal(after.version.current, true);
   assert.deepEqual(after.enabled, { board: true, devices: true, motion: true });
+});
+
+test("офлайн-клуб (exe) присылает снимок базы, и панель видит его как облачный", async (t) => {
+  const { app, hubDb, dir } = makeNetwork(t);
+  const { createHubUser } = await import("../src/hub/auth.js");
+  createHubUser(hubDb, { login: "boss", name: "Владелец сети", password: "boss12345" });
+  const mirrorsDir = path.join(dir, "mirrors");
+  // Панель слушает настоящий порт: клуб у себя ходит к ней по HTTP.
+  const hubApp = createNetworkApp(hubDb, { tenants: createTenants(hubDb, { dir: path.join(dir, "cloud") }), mirrors: createMirrors({ dir: mirrorsDir }) });
+  const server = http.createServer(hubApp);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const hubUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const boss = supertest.agent(hubApp);
+  await boss.post("/hub/api/auth/login").send({ login: "boss", password: "boss12345" });
+  const created = await boss.post("/hub/api/clubs").send({ name: "Офлайн-клуб", city: "Фергана" });
+  assert.equal(created.status, 201);
+  const club = created.body;
+
+  // Программа клуба у себя: своя база, ключ клуба из панели.
+  const clubDb = createDatabase(":memory:");
+  createUser(clubDb, { login: "admin", password: "admin1", name: "Админ", role: "admin" });
+  saveSettings(clubDb, { wespro_hub_url: hubUrl, wespro_club_key: club.api_key, club_name: "Офлайн-клуб" });
+  const clubApp = createApp(clubDb);
+  const admin = supertest.agent(clubApp);
+  await admin.post("/api/auth/login").send({ login: "admin", password: "admin1" });
+  await admin.post("/api/shifts/open").send({});
+  await admin.post("/api/tables").send({ name: "Стол у окна" });
+
+  assert.equal(syncStatus(clubDb).pending, true, "снимок ещё не уезжал");
+  const status = await runSync(clubDb);
+  assert.equal(status.error, null);
+  assert.ok(status.last_snapshot_at, "снимок уехал");
+  assert.equal(status.pending, false);
+  assert.ok(fs.existsSync(path.join(mirrorsDir, String(club.id), "billiards.db")));
+
+  // Панель видит клуб по снимку — как облачный, только с пометкой.
+  const live = (await boss.get("/hub/api/live")).body[club.id];
+  assert.equal(live.mirror, true);
+  assert.ok(live.snapshot_at);
+  assert.equal(live.tables_total, 1);
+  assert.equal(live.shift.cashier, "Админ");
+  const detail = await boss.get(`/hub/api/clubs/${club.id}/program/live`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.tables[0].name, "Стол у окна");
+  const users = await boss.get(`/hub/api/clubs/${club.id}/program/users`);
+  assert.ok(users.body.some((u) => u.login === "admin"));
+
+  // Снимок — только чтение: сотрудников и смену правят в самом клубе.
+  const denied = await boss.put(`/hub/api/clubs/${club.id}/program/users/${users.body[0].id}`).send({ password: "x1234" });
+  assert.equal(denied.status, 409);
+  assert.equal((await boss.get(`/hub/api/clubs/${club.id}/program/open`).redirects(0)).status, 409);
+
+  // А новшества доходят: панель выключила устройства — клуб применил на следующем ping.
+  const off = await boss.put(`/hub/api/clubs/${club.id}/program/features`).send({ devices: false });
+  assert.equal(off.status, 200);
+  assert.equal(enabledFeatures(clubDb).devices, true, "до ping клуб ещё не знает");
+  await runSync(clubDb);
+  assert.equal(enabledFeatures(clubDb).devices, false);
+  assert.equal((await admin.get("/api/auth/me")).body.features.devices, false);
+
+  // Без изменений снимок повторно не шлётся, с изменениями — шлётся.
+  const before = syncStatus(clubDb).last_snapshot_at;
+  await runSync(clubDb);
+  assert.equal(syncStatus(clubDb).last_snapshot_at, before);
+  await admin.post("/api/tables").send({ name: "Стол у двери" });
+  await runSync(clubDb);
+  assert.notEqual(syncStatus(clubDb).last_snapshot_at, before);
+  assert.equal((await boss.get("/hub/api/live")).body[club.id].tables_total, 2);
+
+  // Нет связи — не авария: статус говорит, что не так, программа работает.
+  saveSettings(clubDb, { wespro_hub_url: "http://127.0.0.1:1" });
+  const offline = await runSync(clubDb);
+  assert.ok(offline.error);
+  assert.equal((await admin.get("/api/tables")).status, 200);
+  // Соединения keep-alive держат сервер — рвём их, иначе close ждёт вечно.
+  server.closeAllConnections();
+  server.close();
+  clubDb.close();
 });

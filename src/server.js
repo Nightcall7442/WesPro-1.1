@@ -10,6 +10,7 @@ import { createNetworkApp } from "./network-app.js";
 import { seedInitialData } from "./seed.js";
 import { startAutoBackup } from "./services/auto-backup.js";
 import { startDeviceCycles } from "./services/devices.js";
+import { startSync } from "./services/sync.js";
 import { startBookingReminders } from "./services/telegram.js";
 import { initLighting, syncLighting } from "./services/lighting.js";
 import { lanAddresses } from "./services/network.js";
@@ -19,6 +20,9 @@ import { createTenants } from "./tenants.js";
 const hubDb = createHubDatabase();
 const hubOwner = seedHubOwner(hubDb);
 
+// Без await на верхнем уровне: сборка в WesPro.exe склеивает код в
+// CommonJS, где его нет.
+async function main() {
 let app;
 if (networkMode()) {
   // Сеть клубов: базы заводятся по мере того, как клубы заходят, а
@@ -46,6 +50,9 @@ if (networkMode()) {
   startBookingReminders(db);
   // Кондиционер, вытяжка, приток — по циклу «работает/стоит».
   startDeviceCycles(db);
+  // Связь с сетью WesPro: подписка, новшества, снимок базы — когда есть
+  // интернет; без него программа работает как ни в чём не бывало.
+  startSync(db);
   app = createApp(db, hubDb);
 }
 
@@ -103,4 +110,10 @@ app.listen(PORT, () => {
         "   числа совпадают с адресом телефона (Wi-Fi → сведения о сети)."
     );
   }
+});
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });

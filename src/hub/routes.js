@@ -18,7 +18,8 @@ import { FEATURES, featuresForVersion, versionOf, versionSteps } from "../servic
 import { enabledFeatures, getClubSettings, setFeatures } from "../services/settings.js";
 import { closeShift } from "../services/shifts.js";
 import { listUsers, updateUser } from "../services/users.js";
-import { clubLiveDetail } from "./live.js";
+import { clubLiveDetail, clubLiveStats } from "./live.js";
+import { createMirrors } from "./mirrors.js";
 import { hubSettings, saveHubSettings } from "./db.js";
 import {
   addPayment,
@@ -68,14 +69,52 @@ function intParam(value) {
  * Роутер панели.
  * @param {import("node:sqlite").DatabaseSync} hubDb
  * @param {{
- *   liveStats?: (clubs: Array<{id: number}>) => Record<number, object|null>,
  *   tenantDb?: (club: {id: number}) => import("node:sqlite").DatabaseSync | null,
  *   openClubProgram?: (club: object, hubUser: object, res: import("express").Response) => void,
- * }} [options] хуки сети клубов: живое состояние, база клуба по карточке,
- *   вход в программу клуба владельцем — у одиночной установки их нет
+ *   mirrors?: ReturnType<typeof createMirrors>,
+ * }} [options] хуки сети клубов: база облачного клуба по карточке и вход
+ *   в его программу — у одиночной установки их нет. Снимки офлайн-клубов
+ *   (mirrors) есть в обоих режимах.
  */
-export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, openClubProgram = null } = {}) {
+export function createHubRouter(
+  hubDb,
+  { tenantDb = null, openClubProgram = null, mirrors = createMirrors() } = {}
+) {
   const router = express.Router();
+
+  /**
+   * База клуба для панели: облачный клуб — его база в этом же процессе
+   * (не закрывать), офлайн-клуб — его снимок (открыть и закрыть). null —
+   * клуб ещё ни разу не выходил на связь.
+   * @returns {{db: import("node:sqlite").DatabaseSync, mirror: boolean, close: () => void} | null}
+   */
+  const resolveClubDb = (club) => {
+    const tenant = tenantDb ? tenantDb(club) : null;
+    if (tenant) return { db: tenant, mirror: false, close: () => {} };
+    const snapshot = mirrors.open(club);
+    if (snapshot) return { db: snapshot, mirror: true, close: mirrors.closer(snapshot) };
+    return null;
+  };
+
+  /** Что-то сделать с базой клуба и обязательно закрыть снимок. */
+  const withClubDb = (club, fn) => {
+    const handle = resolveClubDb(club);
+    if (!handle) return null;
+    try {
+      return fn(handle.db, handle.mirror);
+    } finally {
+      handle.close();
+    }
+  };
+
+  /** Новшества клуба: облачному — в базу, офлайновому — ещё и в панель (уедут с ping). */
+  const applyFeatures = (club, db, mirror, patch) => {
+    const enabled = setFeatures(db, patch);
+    if (mirror) {
+      hubDb.prepare("UPDATE clubs SET features_json = ? WHERE id = ?").run(JSON.stringify(enabled), club.id);
+    }
+    return enabled;
+  };
 
   // --- Программы клубов: отметка на связи ----------------------------------
   //
@@ -122,7 +161,24 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
         hubDb.prepare("SELECT max_tables FROM plans WHERE id = ?").get(fresh.plan_id ?? -1)
           ?.max_tables ?? null,
       messages: messagesForClub(hubDb, club.id),
+      // Что панель включила клубу (обновления по клубам) — клуб применит.
+      features: (() => {
+        const row = hubDb.prepare("SELECT features_json FROM clubs WHERE id = ?").get(club.id);
+        return row?.features_json ? JSON.parse(row.features_json) : null;
+      })(),
     });
+  });
+
+  // Снимок базы офлайн-клуба (см. services/sync.js): по нему панель
+  // показывает клуб как облачный. Облачному клубу снимки не нужны.
+  agent.post("/snapshot", (req, res) => {
+    const club = req.club;
+    if (tenantDb && tenantDb(club)) {
+      return res.status(409).json({ detail: "Этот клуб работает в облаке — снимки ему не нужны" });
+    }
+    const result = mirrors.save(club, req.body);
+    hubDb.prepare("UPDATE clubs SET last_seen_at = ? WHERE id = ?").run(new Date().toISOString(), club.id);
+    res.json(result);
   });
 
   agent.post("/messages/:id/read", (req, res) => {
@@ -177,8 +233,25 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
   // молчащие реле — из баз клубов, без пингов. Пустой ответ — панель
   // стоит у одиночного клуба, чужих баз у неё нет.
   router.get("/api/live", (req, res) => {
-    if (!liveStats) return res.json({});
-    res.json(liveStats(listClubs(hubDb, { status: "all" })));
+    const out = {};
+    for (const club of listClubs(hubDb, { status: "all" })) {
+      out[club.id] = withClubDb(club, (db, mirror) => {
+        const stats = clubLiveStats(db);
+        if (mirror) {
+          stats.mirror = true;
+          stats.snapshot_at = mirrors.snapshotAt(club);
+        } else if (stats.last_activity_at && stats.last_activity_at > (club.last_seen_at ?? "")) {
+          // Облачный клуб не «отмечается» пингом — программа общая. Его
+          // связь — это его же работа: последняя запись в журнале клуба
+          // и есть «был на связи», а версия у всех одна, серверная.
+          hubDb
+            .prepare("UPDATE clubs SET last_seen_at = ?, app_version = ?, tables_count = ? WHERE id = ?")
+            .run(stats.last_activity_at, currentVersion(), stats.tables_total, club.id);
+        }
+        return stats;
+      });
+    }
+    res.json(out);
   });
 
   // --- Клубы ---------------------------------------------------------------
@@ -273,22 +346,38 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
     const id = intParam(req.params.id);
     const club = id === null ? null : getClub(hubDb, id);
     if (!club) return res.status(404).json({ detail: "Клуб не найден" });
-    const db = tenantDb ? tenantDb(club) : null;
-    if (!db) {
+    const handle = resolveClubDb(club);
+    if (!handle) {
       return res.status(404).json({
-        detail: tenantDb
-          ? "Программа клуба ещё не открывалась — базы нет"
-          : "Доступно только в сети клубов",
+        detail: "Клуб ещё не выходил на связь — ни базы в облаке, ни снимка",
       });
     }
     req.club = club;
-    req.clubDb = db;
+    req.clubDb = handle.db;
+    req.clubMirror = handle.mirror;
+    res.on("finish", handle.close);
+    res.on("close", handle.close);
     req.author = { id: 0, name: `Панель сети: ${req.hubUser.name}`, role: "developer" };
     next();
   });
 
+  // Снимок — только для чтения: правка в нём до клуба не дойдёт.
+  const readOnlyForMirror = (req, res, next) => {
+    if (req.clubMirror) {
+      throw new ConflictError(
+        "Клуб работает у себя, панель видит только снимок его базы — это делается в самой программе клуба"
+      );
+    }
+    next();
+  };
+
   program.get("/live", (req, res) => {
-    res.json({ ...clubLiveDetail(req.clubDb), settings: getClubSettings(req.clubDb) });
+    res.json({
+      ...clubLiveDetail(req.clubDb),
+      settings: getClubSettings(req.clubDb),
+      mirror: req.clubMirror,
+      snapshot_at: req.clubMirror ? mirrors.snapshotAt(req.club) : null,
+    });
   });
 
   program.get("/users", (req, res) => {
@@ -296,7 +385,7 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
   });
 
   // Сброс пароля, отключение, роль — то же, что делает владелец клуба у себя.
-  program.put("/users/:uid", (req, res) => {
+  program.put("/users/:uid", readOnlyForMirror, (req, res) => {
     const uid = intParam(req.params.uid);
     if (uid === null) return res.status(404).json({ detail: "Сотрудник не найден" });
     const body = req.body ?? {};
@@ -353,7 +442,7 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
         .map((f) => `${f.label}: ${patch[f.key] ? "вкл" : "выкл"}`)
         .join(", ") || "без изменений";
     }
-    setFeatures(req.clubDb, patch);
+    applyFeatures(req.club, req.clubDb, req.clubMirror, patch);
     logHubEvent(
       hubDb,
       HubEvent.CLUB_UPDATED,
@@ -364,7 +453,7 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
   });
 
   // Смена, которую забыли закрыть: закрывается от имени того, кто её открыл.
-  program.post("/shift/close", (req, res) => {
+  program.post("/shift/close", readOnlyForMirror, (req, res) => {
     const open = req.clubDb
       .prepare(
         `SELECT s.user_id, u.name FROM shifts s JOIN users u ON u.id = s.user_id
@@ -399,7 +488,11 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
   // аккаунт у каждого сотрудника панели). Попадает в журнал сети и в
   // журнал клуба, а клуб видит предупреждение, пока разработчик внутри.
   program.get("/open", (req, res) => {
-    if (!openClubProgram) return res.status(404).json({ detail: "Доступно только в сети клубов" });
+    if (!openClubProgram || req.clubMirror) {
+      return res.status(409).json({
+        detail: "Клуб работает у себя — войти в него можно только ключом поддержки",
+      });
+    }
     logHubEvent(
       hubDb,
       HubEvent.SUPPORT_LOGIN,
@@ -413,13 +506,16 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
 
   // Новшества по всей сети: у скольких клубов включено, включить или
   // выключить всем разом. Клубы без базы не считаются — им нечего включать.
-  const clubsWithDb = () =>
-    tenantDb
-      ? listClubs(hubDb, { status: "all" })
-          .filter((c) => c.status !== "archived")
-          .map((club) => ({ club, db: tenantDb(club) }))
-          .filter((x) => x.db)
-      : [];
+  /** Клубы, у которых есть база (облако) или снимок: {club, enabled}. */
+  const clubsWithDb = (fn = null) => {
+    const rows = [];
+    for (const club of listClubs(hubDb, { status: "all" })) {
+      if (club.status === "archived") continue;
+      const enabled = withClubDb(club, (db, mirror) => (fn ? fn(club, db, mirror) : enabledFeatures(db)));
+      if (enabled) rows.push({ club, enabled });
+    }
+    return rows;
+  };
 
   router.get("/api/features", (req, res) => {
     const rows = clubsWithDb();
@@ -429,7 +525,7 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
       versions: versionSteps(currentVersion()),
       features: FEATURES.map((f) => ({
         ...f,
-        enabled_count: rows.filter(({ db }) => enabledFeatures(db)[f.key]).length,
+        enabled_count: rows.filter(({ enabled }) => enabled[f.key]).length,
       })),
     });
   });
@@ -438,8 +534,7 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
   router.put("/api/features/version", (req, res) => {
     const step = versionSteps(currentVersion()).find((s) => s.version === String(req.body?.version));
     if (!step) throw new ConflictError(`Версии «${req.body?.version}» нет в списке ступеней`);
-    const rows = clubsWithDb();
-    for (const { db } of rows) setFeatures(db, featuresForVersion(step.version));
+    const rows = clubsWithDb((club, db, mirror) => applyFeatures(club, db, mirror, featuresForVersion(step.version)));
     logHubEvent(
       hubDb,
       HubEvent.CLUB_UPDATED,
@@ -452,8 +547,7 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
     const feature = FEATURES.find((f) => f.key === req.params.key);
     if (!feature) return res.status(404).json({ detail: "Такого новшества нет" });
     const enabled = Boolean(req.body?.enabled);
-    const rows = clubsWithDb();
-    for (const { db } of rows) setFeatures(db, { [feature.key]: enabled });
+    const rows = clubsWithDb((club, db, mirror) => applyFeatures(club, db, mirror, { [feature.key]: enabled }));
     logHubEvent(
       hubDb,
       HubEvent.CLUB_UPDATED,

@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { DATABASE_PATH, PORT, ROOT_DIR } from "../config.js";
+import { APP_VERSION, DATABASE_PATH, PORT, ROOT_DIR } from "../config.js";
 import { SCHEMA_HISTORY, SCHEMA_VERSION, schemaVersionOf } from "../db.js";
 
 const LOG_DIR = path.join(ROOT_DIR, "logs");
@@ -20,17 +20,9 @@ const LOG_PATH = path.join(LOG_DIR, "errors.log");
 const LOG_MAX_BYTES = 512 * 1024;
 const STARTED_AT = new Date().toISOString();
 
-let appVersion = "неизвестна";
-try {
-  const pkg = JSON.parse(
-    fs.readFileSync(path.join(ROOT_DIR, "package.json"), "utf8")
-  );
-  appVersion = pkg.version ?? appVersion;
-} catch {
-  // package.json не прочитался — версия не критична.
-}
+const appVersion = APP_VERSION;
 
-/** Версия программы из package.json («неизвестна», если не прочиталась). */
+/** Версия программы («неизвестна», если package.json не прочитался). */
 export function currentVersion() {
   return appVersion;
 }

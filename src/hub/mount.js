@@ -25,6 +25,8 @@ export function mountHubAndAccount(app, hubDb, options = {}) {
   const accountOptions = options;
   // Свой разбор тела: в сети общее приложение не парсит JSON глобально —
   // загрузка резервной копии клуба приходит сырым файлом.
+  // Снимок базы офлайн-клуба — сырой файл в теле запроса, до JSON-парсера.
+  app.use("/hub/api/agent/snapshot", express.raw({ type: () => true, limit: "256mb" }));
   app.use("/hub", express.json({ limit: "1mb" }));
   app.use("/account", express.json({ limit: "1mb" }));
 
@@ -47,9 +49,9 @@ export function mountHubAndAccount(app, hubDb, options = {}) {
   app.use(
     "/hub",
     createHubRouter(hubDb, {
-      liveStats: options.liveStats,
       tenantDb: options.tenantDb,
       openClubProgram: options.openClubProgram,
+      mirrors: options.mirrors,
     })
   );
 

@@ -237,6 +237,9 @@ export function createHubDatabase(filePath = HUB_DATABASE_PATH) {
   // Читаемый адрес клуба (/login/adminpanel/<slug>) — тот же приём, что
   // и с кодом: клубам, заведённым до появления slug, выдаём его здесь же.
   ensureColumn(db, "clubs", "slug", "slug TEXT");
+  // Новшества офлайн-клуба (exe): что панель ему включила. Клуб забирает
+  // это с очередным ping и применяет у себя.
+  ensureColumn(db, "clubs", "features_json", "features_json TEXT");
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_clubs_slug ON clubs (slug) WHERE slug IS NOT NULL"
   );
