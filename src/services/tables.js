@@ -8,7 +8,7 @@ import { parseRelayBinding } from "./lighting.js";
 const TABLE_FIELDS =
   "id, name, status, created_at, tuya_device_id, tuya_switch_code, " +
   "light_kind, light_host, light_channel, light_on_url, light_off_url, " +
-  "pos_x, pos_y, size_w, size_h, kind, is_active";
+  "net_ip, net_mac, pos_x, pos_y, size_w, size_h, kind, is_active";
 
 // Тип точки: у всех общие тарифы, сеансы и биллинг — отличается только
 // подпись/иконка на плитке. billiard — бильярдный стол (по умолчанию).

@@ -1741,21 +1741,14 @@ function relayKindLabel(kind) {
     .replace(/ — .*$/, "");
 }
 
-/** Как реле называется в таблице: тип и адрес, чтобы узнать его в сети. */
+/** Как реле называется в таблице: тип (и канал или id в облаке). */
 function relayIdentity(relay) {
   const kind = relay.kind ?? relay.light_kind;
-  const host = relay.host ?? relay.light_host;
   const channel = Number(relay.channel ?? relay.light_channel ?? 0);
   if (kind === "tasmota" || kind === "shelly") {
-    return `${relayKindLabel(kind)} ${host ?? ""}${channel ? ` · канал ${channel}` : ""}`.trim();
+    return `${relayKindLabel(kind)}${channel ? ` · канал ${channel}` : ""}`;
   }
-  if (kind === "url") {
-    try {
-      return `Своё устройство ${new URL(relay.on_url ?? relay.light_on_url).host}`;
-    } catch {
-      return "Своё устройство";
-    }
-  }
+  if (kind === "url") return "Своё устройство";
   return `Tuya / MOES ${relay.device_id ?? relay.tuya_device_id ?? ""}`.trim();
 }
 
@@ -1937,9 +1930,16 @@ async function refreshDevicesTab() {
   renderRelayRows(relays);
 }
 
-/** Реле над столами: связь, свет и ручное переключение (право «Столы»). */
+/**
+ * Все реле — над столами и у устройств: IP и MAC (правятся на месте),
+ * связь, состояние и когда выходило на связь. Свет над столом
+ * переключается отсюда же (право «Столы»).
+ */
 function renderRelayRows(relays) {
   const rows = document.getElementById("relay-rows");
+  // Пока в таблице печатают, опрос её не перерисовывает: значение
+  // сохраняется по уходу из поля.
+  if (rows.contains(document.activeElement)) return;
   rows.replaceChildren();
   for (const relay of relays) {
     const tr = document.createElement("tr");
@@ -1953,7 +1953,8 @@ function renderRelayRows(relays) {
     linkEl.className = `device-link ${link.cls}`;
     linkEl.textContent = link.text;
 
-    // Реле узнаётся по типу и адресу; над каким столом — мелко рядом.
+    // Реле узнаётся по типу; над каким столом или у какого устройства —
+    // мелко рядом.
     const identity = document.createElement("span");
     identity.textContent = relayIdentity(relay);
     const where = document.createElement("span");
@@ -1962,31 +1963,73 @@ function renderRelayRows(relays) {
     const relayCell = document.createElement("td");
     relayCell.append(identity, where);
 
-    const lightCell = document.createElement("td");
-    lightCell.append(relay.light_on ? "горит" : "выключен");
-    if (state.permissions.manage_tables) {
-      const toggle = document.createElement("button");
-      toggle.className = "mini";
-      toggle.style.marginLeft = "8px";
-      toggle.textContent = relay.light_on ? "Выключить" : "Включить";
-      toggle.addEventListener("click", async () => {
+    // IP и MAC: правит разработчик (столы) или кто ведёт настройки
+    // (устройства); остальным — текстом.
+    const editable =
+      state.user?.role === "developer" ||
+      (relay.scope === "device" && state.permissions.manage_settings);
+    const netField = (value, placeholder, size) => {
+      if (!editable) return cell(value || "—");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = value ?? "";
+      input.placeholder = placeholder;
+      input.size = size;
+      input.spellcheck = false;
+      return cell(input);
+    };
+    const ipCell = netField(relay.ip, "192.168.1.50", 14);
+    const macCell = netField(relay.mac, "A4:CF:12:34:56:78", 17);
+    if (editable) {
+      const save = async () => {
         try {
-          await api(`/api/tables/${relay.table_id}/light`, {
-            method: "POST",
-            body: JSON.stringify({ on: !relay.light_on }),
+          await api(`/api/relays/${relay.scope}/${relay.id}/net`, {
+            method: "PUT",
+            body: JSON.stringify({
+              ip: ipCell.firstChild.value,
+              mac: macCell.firstChild.value,
+            }),
           });
+          showToast(`${relay.name}: сохранено`, true);
           await refreshDevicesTab();
         } catch (error) {
           showToast(error.message);
         }
-      });
-      lightCell.append(toggle);
+      };
+      ipCell.firstChild.addEventListener("change", save);
+      macCell.firstChild.addEventListener("change", save);
+    }
+
+    const stateCell = document.createElement("td");
+    if (relay.scope === "table") {
+      stateCell.append(relay.light_on ? "горит" : "выключен");
+      if (state.permissions.manage_tables) {
+        const toggle = document.createElement("button");
+        toggle.className = "mini";
+        toggle.style.marginLeft = "8px";
+        toggle.textContent = relay.light_on ? "Выключить" : "Включить";
+        toggle.addEventListener("click", async () => {
+          try {
+            await api(`/api/tables/${relay.id}/light`, {
+              method: "POST",
+              body: JSON.stringify({ on: !relay.light_on }),
+            });
+            await refreshDevicesTab();
+          } catch (error) {
+            showToast(error.message);
+          }
+        });
+        stateCell.append(toggle);
+      }
+    } else {
+      const device = state.hallDevices.find((d) => d.id === relay.id);
+      stateCell.append(device ? deviceStatusText(device, device.switches_in_seconds) : "—");
     }
     const seenCell = cell(formatSeen(relay.last_seen));
     seenCell.title = relay.last_seen
       ? formatDateTime(relay.last_seen)
       : "С запуска программы не отвечало";
-    tr.append(relayCell, cell(linkEl), lightCell, seenCell);
+    tr.append(relayCell, ipCell, macCell, cell(linkEl), stateCell, seenCell);
     rows.append(tr);
   }
   document.getElementById("relays-empty").hidden = relays.length > 0;

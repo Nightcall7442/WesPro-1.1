@@ -243,6 +243,8 @@ CREATE TABLE IF NOT EXISTS devices (
   light_off_url    TEXT,
   tuya_device_id   TEXT,
   tuya_switch_code TEXT,
+  net_ip           TEXT,
+  net_mac          TEXT,
   created_at       TEXT NOT NULL
 );
 `;
@@ -329,7 +331,7 @@ function migratePlanElementTypes(db) {
  * Держится в самой базе (settings.schema_version) и показывается в
  * «Диагностике».
  */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 /** Что появилось в каждой версии — для отчёта и для разбора жалоб. */
 export const SCHEMA_HISTORY = [
@@ -345,6 +347,7 @@ export const SCHEMA_HISTORY = [
   [10, "реле по локальной сети: Tasmota, Shelly, свой адрес"],
   [11, "устройства зала по циклу: кондиционер, вытяжка, приток"],
   [12, "решётки каналов с положениями, устройства на плане зала"],
+  [13, "IP и MAC реле: сами узнаются при опросе, правятся руками"],
 ];
 
 /** Записывает версию схемы в саму базу — после того как схема доросла. */
@@ -493,6 +496,12 @@ export function createDatabase(filePath = DATABASE_PATH) {
     "device_id",
     "device_id INTEGER REFERENCES devices (id) ON DELETE CASCADE"
   );
+  // Сетевые данные реле — IP и MAC: реле сообщает их при опросе
+  // (Tasmota, Shelly, Tuya), а если не сообщает — вписывают руками.
+  ensureColumn(db, "tables", "net_ip", "net_ip TEXT");
+  ensureColumn(db, "tables", "net_mac", "net_mac TEXT");
+  ensureColumn(db, "devices", "net_ip", "net_ip TEXT");
+  ensureColumn(db, "devices", "net_mac", "net_mac TEXT");
   stampSchemaVersion(db);
   return db;
 }

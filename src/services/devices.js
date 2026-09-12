@@ -22,7 +22,7 @@ import {
 const FIELDS =
   "id, name, type, positions, position, work_minutes, rest_minutes, cycle_on, " +
   "cycle_started_at, is_on, light_kind, light_host, light_channel, light_on_url, " +
-  "light_off_url, tuya_device_id, tuya_switch_code, created_at";
+  "light_off_url, tuya_device_id, tuya_switch_code, net_ip, net_mac, created_at";
 
 /**
  * Виды устройств. Кондиционер, вытяжка и приток — выключатель с циклом.

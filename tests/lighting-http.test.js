@@ -202,3 +202,28 @@ test("положение привода: Tasmota ShutterPosition, «своё у�
   }));
   await assert.rejects(noSlot.setPosition(3, 30), /\{percent\}/);
 });
+
+test("опрос реле: Tasmota сообщает IP и MAC, Shelly — MAC, молчащее — «нет связи»", async (t) => {
+  const device = await fakeDevice(t, (url) => {
+    if (url.pathname === "/shelly") return { mac: "3494547A1B2C", type: "SHSW-1" };
+    const cmnd = url.searchParams.get("cmnd") ?? "";
+    if (/Status 5/i.test(cmnd)) {
+      return { StatusNET: { IPAddress: "192.168.1.77", Mac: "A4:CF:12:34:56:78" } };
+    }
+    return { POWER1: "OFF" };
+  });
+  const tasmota = new HttpLightingController(() => ({ kind: "tasmota", host: device.host, channel: 0 }));
+  assert.deepEqual(await tasmota.probe(1), { online: true, ip: "192.168.1.77", mac: "A4:CF:12:34:56:78" });
+
+  const shelly = new HttpLightingController(() => ({ kind: "shelly", host: device.host, channel: 0 }));
+  const info = await shelly.probe(2);
+  assert.equal(info.online, true);
+  assert.equal(info.mac, "3494547A1B2C");
+  assert.equal(info.ip, "127.0.0.1");
+
+  const dead = new HttpLightingController(() => ({ kind: "tasmota", host: "127.0.0.1:1", channel: 0 }));
+  assert.deepEqual(await dead.probe(3), { online: false });
+
+  const custom = new HttpLightingController(() => ({ kind: "url", on_url: "http://x/on", off_url: "http://x/off" }));
+  assert.deepEqual(await custom.probe(4), { online: null });
+});

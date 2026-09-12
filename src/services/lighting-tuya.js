@@ -65,23 +65,28 @@ export class TuyaLightingController {
   }
 
   /**
-   * В сети ли устройство — по данным облака (там видно, что реле
-   * отвалилось от Wi-Fi). null — узнать не удалось.
+   * Опрос устройства по данным облака: в сети ли (там видно, что реле
+   * отвалилось от Wi-Fi) и с какого адреса выходит. MAC облако не
+   * отдаёт — его вписывают руками.
    * @param {number} id
-   * @returns {Promise<boolean|null>}
+   * @returns {Promise<{online: boolean|null, ip?: string}>}
    */
-  async isOnline(id) {
+  async probe(id) {
     const device = this.#resolveDevice(id);
-    if (!device?.device_id) return null;
+    if (!device?.device_id) return { online: null };
     try {
       const response = await this.#client.request({
         method: "GET",
         path: `/v1.0/iot-03/devices/${device.device_id}`,
       });
-      if (!response?.success) return null;
-      return typeof response.result?.online === "boolean" ? response.result.online : null;
+      if (!response?.success) return { online: null };
+      const { online, ip } = response.result ?? {};
+      return {
+        online: typeof online === "boolean" ? online : null,
+        ip: typeof ip === "string" && ip ? ip : undefined,
+      };
     } catch {
-      return null;
+      return { online: null };
     }
   }
 

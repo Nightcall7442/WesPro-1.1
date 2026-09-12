@@ -21,6 +21,7 @@ import {
   probeRelays,
   relayLastSeen,
   relayOnline,
+  setRelayNet,
 } from "../services/lighting.js";
 import {
   backupFileName,
@@ -1184,26 +1185,54 @@ export function createApiRouter(db) {
     }
   });
 
-  // Реле над столами: кто привязан, горит ли, отвечает ли по сети.
-  // Смотрят все — это состояние зала, а не настройка.
+  // Все реле клуба — над столами и у устройств: кто привязан, IP и MAC,
+  // отвечает ли по сети, когда выходило на связь. Смотрят все — это
+  // состояние зала, а не настройка.
   router.get("/relays", (req, res) => {
     const lighting = getLightingController(db);
-    res.json(
-      listTables(db)
-        .filter((t) => t.light_kind || t.tuya_device_id)
-        .map((t) => ({
-          table_id: t.id,
-          name: t.name,
-          kind: t.light_kind ?? "tuya",
-          host: t.light_host,
-          channel: t.light_channel,
-          device_id: t.tuya_device_id,
-          on_url: t.light_on_url,
-          light_on: lighting.isLightOn(t.id),
-          online: relayOnline(db, "table", t.id),
-          last_seen: relayLastSeen(db, "table", t.id),
-        }))
-    );
+    const relayOf = (scope, row) => {
+      const kind = row.light_kind ?? "tuya";
+      const local = kind === "tasmota" || kind === "shelly";
+      return {
+        scope,
+        id: row.id,
+        name: row.name,
+        kind,
+        // У локального реле IP — адрес привязки; у остальных — что сообщило
+        // устройство или вписали руками.
+        ip: local ? row.light_host : row.net_ip,
+        mac: row.net_mac,
+        channel: row.light_channel,
+        device_id: row.tuya_device_id,
+        on_url: row.light_on_url,
+        online: relayOnline(db, scope, row.id),
+        last_seen: relayLastSeen(db, scope, row.id),
+      };
+    };
+    const bound = (row) => row.light_kind || row.tuya_device_id;
+    res.json([
+      ...listTables(db)
+        .filter(bound)
+        .map((t) => ({ ...relayOf("table", t), light_on: lighting.isLightOn(t.id) })),
+      ...listDevices(db)
+        .filter(bound)
+        .map((d) => ({ ...relayOf("device", d), light_on: d.is_on })),
+    ]);
+  });
+
+  // IP и MAC реле руками. Стол — дело разработчика (как и привязка),
+  // устройство зала — кто ведёт настройки.
+  router.put("/relays/:scope/:id/net", (req, res) => {
+    const { scope } = req.params;
+    if (scope !== "table" && scope !== "device") {
+      return res.status(404).json({ detail: "Реле не найдено" });
+    }
+    if (scope === "table") requireDeveloper(req);
+    else requirePermission(db, req, "manage_settings");
+    const id = intParam(req.params.id);
+    if (id === null) return res.status(404).json({ detail: "Реле не найдено" });
+    setRelayNet(db, scope, id, req.body ?? {});
+    res.json({ ok: true });
   });
 
   // Опросить все реле прямо сейчас, не дожидаясь тика.

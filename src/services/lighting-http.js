@@ -189,13 +189,31 @@ export class HttpLightingController {
   }
 
   /**
-   * Отвечает ли реле по сети. «Своё устройство» опросить нечем — null.
-   * @returns {Promise<boolean|null>}
+   * Опрос реле: отвечает ли, и что оно знает о себе. Tasmota отдаёт
+   * IP и MAC в «Status 5», Shelly — MAC на /shelly (оба поколения).
+   * «Своё устройство» опросить нечем.
+   * @returns {Promise<{online: boolean|null, ip?: string, mac?: string}>}
    */
-  async isOnline(id) {
+  async probe(id) {
     const device = this.#resolveDevice(id);
-    if (!device || device.kind === "url") return null;
-    return (await this.readLight(id)) !== null;
+    if (!device || device.kind === "url") return { online: null };
+    const host = normalizeHost(device.host);
+    if (!host) return { online: null };
+    try {
+      if (device.kind === "tasmota") {
+        const data = await request(`${host}/cm?cmnd=Status%205`);
+        const net = data?.StatusNET ?? {};
+        return { online: true, ip: net.IPAddress || undefined, mac: net.Mac || undefined };
+      }
+      const data = await request(`${host}/shelly`);
+      return {
+        online: true,
+        ip: host.replace(/^https?:\/\//, "").replace(/:\d+$/, ""),
+        mac: typeof data?.mac === "string" ? data.mac : undefined,
+      };
+    } catch {
+      return { online: false };
+    }
   }
 
   /**

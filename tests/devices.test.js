@@ -192,14 +192,46 @@ test("связь с реле: опрос показывает, кто в сет�
   assert.equal(probe.status, 200);
   assert.equal(probe.body.probed, 2);
 
-  const relays = await admin.get("/api/relays");
-  assert.equal(relays.body.length, 1);
-  assert.equal(relays.body[0].name, "Стол у окна");
-  assert.equal(relays.body[0].kind, "tasmota");
-  assert.equal(relays.body[0].online, false);
-  assert.equal(relays.body[0].light_on, false);
+  // В таблице реле — и столы, и устройства; без реле — не реле.
+  const relays = (await admin.get("/api/relays")).body;
+  assert.deepEqual(
+    relays.map((r) => `${r.scope}:${r.name}`),
+    ["table:Стол у окна", "device:Приток"]
+  );
+  const tableRelay = relays[0];
+  assert.equal(tableRelay.kind, "tasmota");
+  assert.equal(tableRelay.ip, "127.0.0.1:1", "у локального реле IP — адрес привязки");
+  assert.equal(tableRelay.mac, null);
+  assert.equal(tableRelay.online, false);
+  assert.equal(tableRelay.light_on, false);
+  assert.equal(tableRelay.last_seen, null);
 
   const devices = (await admin.get("/api/devices")).body;
   assert.equal(devices.find((d) => d.name === "Вытяжка").online, null, "без реле — нечего опрашивать");
   assert.equal(devices.find((d) => d.name === "Приток").online, false);
+
+  // IP и MAC руками: стол — только разработчик, устройство — кто ведёт настройки.
+  const denied = await admin
+    .put(`/api/relays/table/${table.id}/net`)
+    .send({ ip: "127.0.0.1:2", mac: "a4-cf-12-34-56-78" });
+  assert.equal(denied.status, 403);
+  const saved = await dev
+    .put(`/api/relays/table/${table.id}/net`)
+    .send({ ip: "127.0.0.1:2", mac: "a4-cf-12-34-56-78" });
+  assert.equal(saved.status, 200);
+  const badMac = await dev.put(`/api/relays/table/${table.id}/net`).send({ ip: "127.0.0.1:2", mac: "hello" });
+  assert.equal(badMac.status, 409);
+  const intake = devices.find((d) => d.name === "Приток");
+  const savedDevice = await admin
+    .put(`/api/relays/device/${intake.id}/net`)
+    .send({ ip: "10.0.0.7", mac: "" });
+  assert.equal(savedDevice.status, 200);
+
+  const after = (await admin.get("/api/relays")).body;
+  assert.equal(after[0].ip, "127.0.0.1:2");
+  assert.equal(after[0].mac, "A4:CF:12:34:56:78", "MAC приводится к одному виду");
+  assert.equal(after[1].ip, "10.0.0.7");
+  assert.equal(after[1].mac, null);
+  // Адрес привязки стола тоже сменился — реле дёргается по новому.
+  assert.equal((await admin.get("/api/tables")).body[0].light_host, "127.0.0.1:2");
 });

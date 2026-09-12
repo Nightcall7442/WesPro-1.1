@@ -10,7 +10,7 @@
 // «Настройки» интерфейса и хранятся в базе; initLighting перечитывает их
 // при старте сервера и после каждого сохранения настроек.
 
-import { ConflictError } from "./errors.js";
+import { ConflictError, NotFoundError } from "./errors.js";
 import { getSettings } from "./settings.js";
 import { HttpLightingController, HTTP_KINDS } from "./lighting-http.js";
 import { TuyaLightingController } from "./lighting-tuya.js";
@@ -136,8 +136,8 @@ export class MockLightingController {
   }
 
   /** Реле нет — и связи с ним нет: ни «в сети», ни «нет связи». */
-  async isOnline() {
-    return null;
+  async probe() {
+    return { online: null };
   }
 }
 
@@ -224,11 +224,15 @@ class CompositeLightingController {
     return true;
   }
 
-  /** В сети ли реле: true/false; null — не привязано или узнать нельзя. */
-  async isOnline(id) {
+  /**
+   * Опрос реле: в сети ли (null — не привязано или узнать нельзя) и
+   * что оно сообщило о себе (IP, MAC).
+   * @returns {Promise<{online: boolean|null, ip?: string, mac?: string}>}
+   */
+  async probe(id) {
     const backend = this.#backendFor(id);
-    if (backend === this.#memory) return null;
-    return backend.isOnline(id);
+    if (backend === this.#memory) return { online: null };
+    return backend.probe(id);
   }
 }
 
@@ -283,15 +287,68 @@ export async function probeRelays(db) {
   const tables = db.prepare(`SELECT id FROM tables WHERE is_active = 1 AND ${bound}`).all();
   const devices = db.prepare(`SELECT id FROM devices WHERE ${bound}`).all();
   const { controller, devices: deviceController } = stateFor(db);
+  const probeOne = async (scope, id, ctrl) => {
+    const info = await ctrl.probe(id).catch(() => ({ online: null }));
+    remember(map, `${scope}:${id}`, info.online);
+    // Что реле рассказало о себе — запоминаем в базе: так IP и MAC
+    // видны в интерфейсе и после перезапуска, а вписанное руками
+    // остаётся, пока устройство само не сообщит другое.
+    if (info.ip || info.mac) {
+      try {
+        db.prepare(
+          `UPDATE ${scope === "table" ? "tables" : "devices"}
+             SET net_ip = COALESCE(?, net_ip), net_mac = COALESCE(?, net_mac)
+           WHERE id = ?`
+        ).run(info.ip ?? null, info.mac ? normalizeMac(info.mac) : null, id);
+      } catch {
+        // Устройство прислало что-то не похожее на MAC — не наша беда.
+      }
+    }
+  };
   await Promise.all([
-    ...tables.map(async ({ id }) =>
-      remember(map, `table:${id}`, await controller.isOnline(id).catch(() => null))
-    ),
-    ...devices.map(async ({ id }) =>
-      remember(map, `device:${id}`, await deviceController.isOnline(id).catch(() => null))
-    ),
+    ...tables.map(({ id }) => probeOne("table", id, controller)),
+    ...devices.map(({ id }) => probeOne("device", id, deviceController)),
   ]);
   return { probed: tables.length + devices.length };
+}
+
+/** MAC в одном виде: A4:CF:12:34:56:78. Пустая строка — нет MAC. */
+function normalizeMac(value) {
+  const text = String(value ?? "").trim().toUpperCase().replaceAll("-", ":");
+  if (!text) return null;
+  const compact = text.replaceAll(":", "");
+  if (!/^[0-9A-F]{12}$/.test(compact)) {
+    throw new ConflictError(
+      "MAC — шесть пар шестнадцатеричных цифр через двоеточие, например A4:CF:12:34:56:78"
+    );
+  }
+  return compact.match(/.{2}/g).join(":");
+}
+
+/**
+ * IP и MAC реле, вписанные руками. У локального реле (Tasmota, Shelly)
+ * IP — это и есть адрес, по которому его дёргают: сменился адрес —
+ * правят здесь, и реле снова отвечает. У облачных и «своих» IP — просто
+ * запись.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {"table"|"device"} scope
+ * @param {number} id
+ * @param {{ip?: string|null, mac?: string|null}} data
+ */
+export function setRelayNet(db, scope, id, data = {}) {
+  const table = scope === "table" ? "tables" : "devices";
+  const row = db.prepare(`SELECT light_kind FROM ${table} WHERE id = ?`).get(id);
+  if (!row) throw new NotFoundError(scope === "table" ? "Стол не найден" : "Устройство не найдено");
+  const ip = String(data.ip ?? "").trim();
+  if (/\s/.test(ip)) throw new ConflictError("В адресе не должно быть пробелов");
+  const mac = normalizeMac(data.mac);
+  const local = row.light_kind === "tasmota" || row.light_kind === "shelly";
+  if (local && !ip) {
+    throw new ConflictError("У реле в локальной сети адрес нужен — без него его не дёрнуть");
+  }
+  db.prepare(
+    `UPDATE ${table} SET ${local ? "light_host" : "net_ip"} = ?, net_mac = ? WHERE id = ?`
+  ).run(ip || null, mac, id);
 }
 
 // Состояние драйвера — своё у каждой базы. В сети клубов все клубы
