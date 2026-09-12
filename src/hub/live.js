@@ -8,6 +8,8 @@ import { kopecksToRubles } from "../services/billing.js";
 import { relayLastSeen, relayOnline } from "../services/lighting.js";
 import { listDevices } from "../services/devices.js";
 import { currentCostKopecks, getOpenSession } from "../services/sessions.js";
+import { currentVersion } from "../services/diagnostics.js";
+import { versionOf } from "../services/features.js";
 import { enabledFeatures, getClubSettings } from "../services/settings.js";
 import { listTables } from "../services/tables.js";
 
@@ -96,8 +98,9 @@ export function clubLiveStats(db) {
     relays_total: relays.length,
     relays_offline: relays.filter(([scope, id]) => relayOnline(db, scope, id) === false).length,
     last_activity_at: lastActivity,
-    // Что из новшеств включено клубу — «версия» клуба в панели.
+    // Что из новшеств включено клубу — и какая это версия.
     features: enabledFeatures(db),
+    version: versionOf(enabledFeatures(db), currentVersion()),
   };
 }
 

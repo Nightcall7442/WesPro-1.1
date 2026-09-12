@@ -561,13 +561,14 @@ function buildClubTile(club) {
   }
   tags.append(subscriptionTag(club));
   if (club.plan_name) tags.append(el("span", "club-tag", club.plan_name));
-  if (live?.features) {
-    const off = Object.values(live.features).filter((v) => !v).length;
-    const tag = el("span", `club-tag ${off ? "warn" : "ok"}`, off ? `выключено новшеств: ${off}` : "все новшества");
-    tag.title = "Обновления клуба — на его странице";
+  if (live?.version) {
+    const v = live.version;
+    const tag = el("span", `club-tag ${v.current ? "ok" : "warn"}`, `версия ${v.version}${v.partial ? "+" : ""}`);
+    tag.title = v.current ? "Текущая версия" : "Клуб на прежней версии — обновления на его странице";
     tags.append(tag);
+  } else if (club.app_version) {
+    tags.append(el("span", "club-tag", club.app_version));
   }
-  if (club.app_version) tags.append(el("span", "club-tag", club.app_version));
   tile.append(tags);
 
   const actions = el("div", "club-actions");
@@ -869,7 +870,8 @@ function buildNowTab(live) {
 
 /** Новшества клуба: код общий, а что видит клуб — решает эта вкладка. */
 async function buildUpdatesTab(clubId) {
-  const { features, enabled } = await api(`/hub/api/clubs/${clubId}/program/features`);
+  const data = await api(`/hub/api/clubs/${clubId}/program/features`);
+  const { features, enabled, versions, version } = data;
   const panel = el("div", "hub-panel");
   const onCount = features.filter((f) => enabled[f.key]).length;
   panel.append(
@@ -887,6 +889,31 @@ async function buildUpdatesTab(clubId) {
     showToast(text, true);
     await loadClubPage();
   });
+
+  // Версия ступенью: выбрал — получил ровно то, что было в той версии.
+  const versionBox = el("div", "version-box");
+  const current = el("div");
+  current.append(
+    el("span", "hint", "Версия клуба: "),
+    el("b", "version-now", `${version.version}${version.current ? " (текущая)" : ""}${version.partial ? " + часть новшеств" : ""}`)
+  );
+  const select = document.createElement("select");
+  for (const step of versions) {
+    const option = document.createElement("option");
+    option.value = step.version;
+    option.textContent = `${step.version} — ${step.label}`;
+    select.append(option);
+  }
+  select.value = version.version;
+  const pick = el("div", "row-actions");
+  pick.append(
+    select,
+    button("Поставить версию", "primary", () =>
+      save({ version: select.value }, `Клубу поставлена версия ${select.value}`)
+    )
+  );
+  versionBox.append(current, pick);
+  panel.append(versionBox);
   const list = el("div", "feature-list");
   for (const feature of features) {
     const row = el("div", `feature-row${enabled[feature.key] ? " on" : ""}`);
@@ -901,12 +928,12 @@ async function buildUpdatesTab(clubId) {
     list.append(row);
   }
   panel.append(list);
-  const all = Object.fromEntries(features.map((f) => [f.key, true]));
-  const none = Object.fromEntries(features.map((f) => [f.key, false]));
+  const newest = versions[versions.length - 1].version;
+  const base = versions[0].version;
   panel.append(
     actionsRow(
-      button("Обновить до текущей версии", "primary", () => save(all, "Клубу включены все новшества")),
-      button("Откатить всё новое", "mini danger", () => save(none, "Новшества выключены — клуб на прежней версии"))
+      button("Обновить до текущей версии", "primary", () => save({ version: newest }, `Клубу поставлена текущая версия ${newest}`)),
+      button("Откатить всё новое", "mini danger", () => save({ version: base }, `Клуб откатан на ${base} — без новшеств`))
     )
   );
   return panel;
@@ -1454,12 +1481,35 @@ async function renderNetworkFeatures() {
     host.append(el("p", "hub-empty", "Клубов с программой пока нет — включать новшества некому."));
     return;
   }
+  const versionRow = el("div", "feature-row");
+  const versionText = el("div");
+  versionText.append(el("b", null, "Версия всем клубам"), el("div", "hint", `Текущая версия программы — ${data.current_version}. Выбранная ступень ставится всем клубам разом.`));
+  const select = document.createElement("select");
+  for (const step of data.versions) {
+    const option = document.createElement("option");
+    option.value = step.version;
+    option.textContent = `${step.version} — ${step.label}`;
+    select.append(option);
+  }
+  select.value = data.current_version;
+  const versionActions = el("div", "row-actions");
+  versionActions.append(
+    select,
+    button("Поставить всем", "primary", guard(async () => {
+      const result = await api("/hub/api/features/version", { method: "PUT", body: JSON.stringify({ version: select.value }) });
+      showToast(`Версия ${result.version} поставлена ${result.updated} клубам`, true);
+      await renderNetworkFeatures();
+    }))
+  );
+  versionRow.append(versionText, versionActions);
+  host.append(versionRow);
+
   for (const feature of data.features) {
     const row = el("div", "feature-row");
     const text = el("div");
     text.append(
       el("b", null, feature.label),
-      el("div", "hint", `${feature.hint} Включено у ${feature.enabled_count} из ${data.clubs_total} клубов.`)
+      el("div", "hint", `${feature.hint} С версии ${feature.since}. Включено у ${feature.enabled_count} из ${data.clubs_total} клубов.`)
     );
     const set = (enabled) =>
       guard(async () => {

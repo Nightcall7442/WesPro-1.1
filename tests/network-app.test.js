@@ -531,4 +531,21 @@ test("новшества включаются каждому клубу отде
   assert.equal(all.body.updated, 2);
   assert.equal((await nine.get("/api/auth/me")).body.features.motion, false);
   assert.equal((await boss.put("/hub/api/features/nope").send({ enabled: true })).status, 404);
+
+  // Версия ступенью: 1.9.0 — только экран для гостей; текущая — всё.
+  const step = await boss.put(`/hub/api/clubs/${tetrisId}/program/features`).send({ version: "1.9.0" });
+  assert.equal(step.status, 200);
+  assert.deepEqual(step.body.enabled, { board: true, devices: false, motion: false });
+  assert.equal(step.body.version.version, "1.9.0");
+  assert.equal(step.body.version.current, false);
+  assert.ok(step.body.versions.some((v) => v.label === "текущая"));
+  const bad = await boss.put(`/hub/api/clubs/${tetrisId}/program/features`).send({ version: "9.9.9" });
+  assert.equal(bad.status, 409);
+
+  const latest = step.body.current_version;
+  const everyone = await boss.put("/hub/api/features/version").send({ version: latest });
+  assert.equal(everyone.body.updated, 2);
+  const after = (await boss.get(`/hub/api/clubs/${tetrisId}/program/features`)).body;
+  assert.equal(after.version.current, true);
+  assert.deepEqual(after.enabled, { board: true, devices: true, motion: true });
 });

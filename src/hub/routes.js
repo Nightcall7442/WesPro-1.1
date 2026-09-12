@@ -13,7 +13,8 @@ import fs from "node:fs";
 import { backupFileName, exportBackupFile } from "../services/backup.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../services/errors.js";
 import { listJournal } from "../services/journal.js";
-import { FEATURES } from "../services/features.js";
+import { currentVersion } from "../services/diagnostics.js";
+import { FEATURES, featuresForVersion, versionOf, versionSteps } from "../services/features.js";
 import { enabledFeatures, getClubSettings, setFeatures } from "../services/settings.js";
 import { closeShift } from "../services/shifts.js";
 import { listUsers, updateUser } from "../services/users.js";
@@ -321,23 +322,45 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
   // Новшества клуба: что включено. Так обновление раскатывается по
   // клубам по одному — код общий, а видит клуб только то, что ему
   // включили.
+  const featuresOut = (db) => {
+    const enabled = enabledFeatures(db);
+    return {
+      features: FEATURES,
+      enabled,
+      versions: versionSteps(currentVersion()),
+      version: versionOf(enabled, currentVersion()),
+      current_version: currentVersion(),
+    };
+  };
+
   program.get("/features", (req, res) => {
-    res.json({ features: FEATURES, enabled: enabledFeatures(req.clubDb) });
+    res.json(featuresOut(req.clubDb));
   });
 
+  // Либо по одному новшеству ({devices: false}), либо ступенью
+  // ({version: "1.14.0"}): включить всё до этой версии, остальное выключить.
   program.put("/features", (req, res) => {
-    const patch = req.body ?? {};
-    const enabled = setFeatures(req.clubDb, patch);
-    const changed = FEATURES.filter((f) => f.key in patch)
-      .map((f) => `${f.label}: ${patch[f.key] ? "вкл" : "выкл"}`)
-      .join(", ");
+    const body = req.body ?? {};
+    let patch = body;
+    let what;
+    if ("version" in body) {
+      const step = versionSteps(currentVersion()).find((s) => s.version === String(body.version));
+      if (!step) throw new ConflictError(`Версии «${body.version}» нет в списке ступеней`);
+      patch = featuresForVersion(step.version);
+      what = `поставлена версия ${step.version}`;
+    } else {
+      what = FEATURES.filter((f) => f.key in patch)
+        .map((f) => `${f.label}: ${patch[f.key] ? "вкл" : "выкл"}`)
+        .join(", ") || "без изменений";
+    }
+    setFeatures(req.clubDb, patch);
     logHubEvent(
       hubDb,
       HubEvent.CLUB_UPDATED,
-      `«${req.club.name}»: обновления — ${changed || "без изменений"} — ${req.hubUser.name}`,
+      `«${req.club.name}»: обновления — ${what} — ${req.hubUser.name}`,
       req.club.id
     );
-    res.json({ features: FEATURES, enabled });
+    res.json(featuresOut(req.clubDb));
   });
 
   // Смена, которую забыли закрыть: закрывается от имени того, кто её открыл.
@@ -401,11 +424,27 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
     const rows = clubsWithDb();
     res.json({
       clubs_total: rows.length,
+      current_version: currentVersion(),
+      versions: versionSteps(currentVersion()),
       features: FEATURES.map((f) => ({
         ...f,
         enabled_count: rows.filter(({ db }) => enabledFeatures(db)[f.key]).length,
       })),
     });
+  });
+
+  // Поставить версию всем клубам разом.
+  router.put("/api/features/version", (req, res) => {
+    const step = versionSteps(currentVersion()).find((s) => s.version === String(req.body?.version));
+    if (!step) throw new ConflictError(`Версии «${req.body?.version}» нет в списке ступеней`);
+    const rows = clubsWithDb();
+    for (const { db } of rows) setFeatures(db, featuresForVersion(step.version));
+    logHubEvent(
+      hubDb,
+      HubEvent.CLUB_UPDATED,
+      `Всем клубам (${rows.length}) поставлена версия ${step.version} — ${req.hubUser.name}`
+    );
+    res.json({ updated: rows.length, version: step.version });
   });
 
   router.put("/api/features/:key", (req, res) => {
