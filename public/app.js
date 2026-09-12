@@ -1716,9 +1716,11 @@ function renderDevicesStrip(devices) {
     ...devices.map((device) => {
       const meta = DEVICE_TYPES[device.type] ?? DEVICE_TYPES.exhaust;
       const btn = document.createElement("button");
-      btn.className =
-        `device-dot${device.is_on ? " on" : ""}${device.relay_error ? " err" : ""}`;
-      btn.title = `${device.name}: ${deviceStatusText(device, device.switches_in_seconds)}`;
+      const offline = device.relay_error || device.online === false;
+      btn.className = `device-dot${device.is_on ? " on" : ""}${offline ? " err" : ""}`;
+      btn.title =
+        `${device.name}: ${deviceStatusText(device, device.switches_in_seconds)}` +
+        (device.online === false ? " · нет связи" : "");
       btn.append(icon(meta.ic));
       if (device.type === "damper" && device.position && device.positions.length > 1) {
         btn.append(`${device.position}%`);
@@ -1731,6 +1733,22 @@ function renderDevicesStrip(devices) {
 }
 
 // ------------------------------------------- устройства зала (вытяжка и т. п.)
+
+/** Подпись типа реле — для таблиц состояния. */
+function relayKindLabel(kind) {
+  return (LIGHT_KINDS.find(([value]) => value === (kind ?? ""))?.[1] ?? kind ?? "—")
+    .replace(/ \(.*\)$/, "")
+    .replace(/ — .*$/, "");
+}
+
+/** Связь с реле одним словом: по последнему опросу. */
+function linkState(item) {
+  const bound = item.light_kind || item.tuya_device_id || item.kind;
+  if (!bound) return { text: "без реле", cls: "muted" };
+  if (item.online === true) return { text: "в сети", cls: "ok" };
+  if (item.online === false) return { text: "нет связи", cls: "bad" };
+  return { text: "не проверяется", cls: "muted" };
+}
 
 /** Виды устройств зала: подпись и иконка (для плашек, таблицы и плана). */
 const DEVICE_TYPES = {
@@ -1797,6 +1815,13 @@ function buildDeviceChip(device, afterAction = refreshDevicesTab) {
   const name = document.createElement("b");
   name.append(icon(meta.ic), ` ${device.name}`);
   name.title = meta.label;
+
+  // Связь с реле: видно сразу, кто отвалился от сети.
+  const link = linkState(device);
+  const linkEl = document.createElement("span");
+  linkEl.className = `device-link ${link.cls}`;
+  linkEl.textContent = link.text;
+  name.append(" ", linkEl);
 
   const status = document.createElement("span");
   status.className = "device-status";
@@ -1869,12 +1894,57 @@ function renderDevicesBar(devices) {
  * стёрла.
  */
 async function refreshDevicesTab() {
-  const devices = await api("/api/devices");
+  const [devices, relays] = await Promise.all([api("/api/devices"), api("/api/relays")]);
   state.hallDevices = devices;
   state.devicesFetchedAt = performance.now();
   renderDevicesBar(devices);
-  const rows = document.getElementById("device-rows");
-  if (!rows.contains(document.activeElement)) renderDeviceRows(devices);
+  renderRelayRows(relays);
+}
+
+/** Реле над столами: связь, свет и ручное переключение (право «Столы»). */
+function renderRelayRows(relays) {
+  const rows = document.getElementById("relay-rows");
+  rows.replaceChildren();
+  for (const relay of relays) {
+    const tr = document.createElement("tr");
+    const cell = (text) => {
+      const td = document.createElement("td");
+      td.append(text);
+      return td;
+    };
+    const link = linkState(relay);
+    const linkEl = document.createElement("span");
+    linkEl.className = `device-link ${link.cls}`;
+    linkEl.textContent = link.text;
+
+    const actions = document.createElement("td");
+    if (state.permissions.manage_tables) {
+      const toggle = document.createElement("button");
+      toggle.className = "mini";
+      toggle.textContent = relay.light_on ? "Выключить" : "Включить";
+      toggle.addEventListener("click", async () => {
+        try {
+          await api(`/api/tables/${relay.table_id}/light`, {
+            method: "POST",
+            body: JSON.stringify({ on: !relay.light_on }),
+          });
+          await refreshDevicesTab();
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+      actions.append(toggle);
+    }
+    tr.append(
+      cell(relay.name),
+      cell(relayKindLabel(relay.kind)),
+      cell(linkEl),
+      cell(relay.light_on ? "горит" : "выключен"),
+      actions
+    );
+    rows.append(tr);
+  }
+  document.getElementById("relays-empty").hidden = relays.length > 0;
 }
 
 async function loadClients() {
@@ -6076,7 +6146,7 @@ function buildDeviceRow(device) {
     try {
       await api(`/api/devices/${device.id}`, { method: "DELETE" });
       showToast("Устройство удалено", true);
-      await refreshDevicesTab();
+      renderDeviceRows(await api("/api/devices"));
     } catch (error) {
       showToast(error.message);
     }
@@ -6149,9 +6219,10 @@ function currentCurrencyValue() {
 }
 
 async function refreshSettings() {
-  const [settings, tables] = await Promise.all([
+  const [settings, tables, devices] = await Promise.all([
     api("/api/settings"),
     api("/api/tables"),
+    api("/api/devices"),
   ]);
   document.getElementById("set-driver").value = settings.lighting_driver;
   document.getElementById("set-host").value = settings.tuya_api_host;
@@ -6169,6 +6240,7 @@ async function refreshSettings() {
   renderLogoPreview(settings.club_logo);
   setupLogoScale(settings.club_logo_height);
   renderBindings(tables);
+  renderDeviceRows(devices);
   document.getElementById("board-url").textContent = `${location.origin}/board`;
   document.getElementById("set-tg-token").value = settings.telegram_bot_token;
   document.getElementById("set-tg-chat").value = settings.telegram_chat_id;
@@ -7108,6 +7180,7 @@ async function loadDevices() {
     state.devices = await api("/api/settings/devices");
     status.textContent = `Найдено устройств: ${state.devices.length}`;
     renderBindings(await api("/api/tables"));
+    renderDeviceRows(await api("/api/devices"));
   } catch (error) {
     status.textContent = "";
     showToast(error.message);
@@ -7577,6 +7650,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Опросить реле сейчас, не дожидаясь тика.
+  document.getElementById("relays-probe").addEventListener("click", async (event) => {
+    const status = document.getElementById("relays-status");
+    event.target.disabled = true;
+    status.textContent = "Опрашиваем…";
+    try {
+      const result = await api("/api/relays/probe", { method: "POST" });
+      await refreshDevicesTab();
+      status.textContent = `Опрошено реле: ${result.probed}`;
+    } catch (error) {
+      status.textContent = "";
+      showToast(error.message);
+    } finally {
+      event.target.disabled = false;
+    }
+  });
   // Решётке — положения вместо цикла.
   document.getElementById("new-device-type").addEventListener("change", (e) => {
     const damper = e.target.value === "damper";
@@ -7600,7 +7689,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
       nameInput.value = "";
       showToast("Устройство добавлено — выберите ему реле", true);
-      await refreshDevicesTab();
+      renderDeviceRows(await api("/api/devices"));
     } catch (error) {
       showToast(error.message);
     }

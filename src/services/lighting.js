@@ -134,6 +134,11 @@ export class MockLightingController {
   positionOf(id) {
     return this.#positions.get(id) ?? 0;
   }
+
+  /** Реле нет — и связи с ним нет: ни «в сети», ни «нет связи». */
+  async isOnline() {
+    return null;
+  }
 }
 
 /**
@@ -218,6 +223,56 @@ class CompositeLightingController {
     await this.#memory.setPosition(id, percent);
     return true;
   }
+
+  /** В сети ли реле: true/false; null — не привязано или узнать нельзя. */
+  async isOnline(id) {
+    const backend = this.#backendFor(id);
+    if (backend === this.#memory) return null;
+    return backend.isOnline(id);
+  }
+}
+
+// «В сети ли реле» — ответ опроса, а не догадка: раз в полминуты
+// программа спрашивает каждое реле (см. probeRelays), а интерфейс
+// показывает последний ответ. Кэш свой у каждой базы.
+const onlineStates = new WeakMap();
+
+/**
+ * Последний известный ответ реле: true — в сети, false — не отвечает,
+ * null — не опрашивали, не привязано или узнать нельзя.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {"table"|"device"} scope
+ * @param {number} id
+ */
+export function relayOnline(db, scope, id) {
+  return onlineStates.get(db)?.get(`${scope}:${id}`) ?? null;
+}
+
+/**
+ * Опрашивает все привязанные реле — над столами и у устройств зала —
+ * и запоминает, кто ответил. Параллельно: молчащее реле ждём не дольше
+ * его таймаута, а не по очереди. Ошибки не важны: касса от них не
+ * зависит.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @returns {Promise<{probed: number}>}
+ */
+export async function probeRelays(db) {
+  let map = onlineStates.get(db);
+  if (!map) onlineStates.set(db, (map = new Map()));
+  const bound =
+    "((light_kind IS NOT NULL AND light_kind != '') OR (tuya_device_id IS NOT NULL AND tuya_device_id != ''))";
+  const tables = db.prepare(`SELECT id FROM tables WHERE is_active = 1 AND ${bound}`).all();
+  const devices = db.prepare(`SELECT id FROM devices WHERE ${bound}`).all();
+  const { controller, devices: deviceController } = stateFor(db);
+  await Promise.all([
+    ...tables.map(async ({ id }) =>
+      map.set(`table:${id}`, await controller.isOnline(id).catch(() => null))
+    ),
+    ...devices.map(async ({ id }) =>
+      map.set(`device:${id}`, await deviceController.isOnline(id).catch(() => null))
+    ),
+  ]);
+  return { probed: tables.length + devices.length };
 }
 
 // Состояние драйвера — своё у каждой базы. В сети клубов все клубы

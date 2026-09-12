@@ -413,45 +413,25 @@
       <div id="devices-bar" class="devices-bar" hidden></div>
       <p id="devices-none" class="empty" hidden>Устройств пока нет.</p>
 
-      <div class="settings-card" data-permission="manage_settings" hidden style="margin-top:24px">
-        <h3>Настройка устройств</h3>
+      <div class="settings-card" style="margin-top:24px">
+        <h3>Свет над столами и реле</h3>
         <p class="hint">
-          Устройство сидит на реле — как свет над столом — и работает по
-          циклу: поработало столько-то минут, постояло столько-то, и так
-          по кругу. Цикл и ручное включение — на плашках выше, они видны
-          всем сотрудникам. Кнопка «Тест» включает реле на 2 секунды.
-          Список устройств Tuya загружается в «Настройках» → «Загрузить
-          устройства из Tuya».
+          Все реле клуба: над столами и у устройств. «В сети» — реле
+          ответило на последний опрос (раз в полминуты), «нет связи» —
+          молчит: проверьте питание и Wi-Fi. Свет над столом включается
+          сам при открытии сеанса и гаснет при закрытии.
         </p>
+        <div class="settings-actions">
+          <button id="relays-probe" class="mini">Проверить связь сейчас</button>
+          <span id="relays-status" class="hint"></span>
+        </div>
         <table class="data-table">
           <thead>
-            <tr>
-              <th>Устройство</th><th>Вид</th><th>Цикл (мин) или положения (%)</th>
-              <th>Тип реле</th><th>Настройка</th><th></th>
-            </tr>
+            <tr><th>Стол</th><th>Реле</th><th>Связь</th><th>Свет</th><th></th></tr>
           </thead>
-          <tbody id="device-rows"></tbody>
+          <tbody id="relay-rows"></tbody>
         </table>
-        <form id="device-add-form" class="inline-form">
-          <input id="new-device-name" type="text" placeholder="Название — например, Вытяжка" required maxlength="100">
-          <select id="new-device-type">
-            <option value="exhaust">Вытяжка</option>
-            <option value="ac">Кондиционер</option>
-            <option value="intake">Приток</option>
-            <option value="damper">Решётка канала</option>
-          </select>
-          <input id="new-device-work" type="number" placeholder="Работает, мин" required min="1" max="1440" step="1" value="15">
-          <input id="new-device-rest" type="number" placeholder="Стоит, мин" required min="0" max="1440" step="1" value="30">
-          <input id="new-device-positions" type="text" placeholder="Положения, % — например 30,50,70" value="30,50,70" hidden>
-          <button type="submit">Добавить устройство</button>
-        </form>
-        <p class="hint">
-          Решётка с одним положением (например «100») — это заслонка
-          «открыто/закрыто» на обычном реле. С несколькими — привод с
-          положениями: Tuya (команда percent_control), Tasmota со шторами
-          (ShutterPosition), Shelly в режиме roller или свой адрес с
-          подстановкой <b>{percent}</b>.
-        </p>
+        <p id="relays-empty" class="empty" hidden>К столам реле не привязаны — это делает разработчик в «Настройках».</p>
       </div>
     </section>
 
@@ -925,6 +905,48 @@
           </thead>
           <tbody id="binding-rows"></tbody>
         </table>
+      </div>
+
+      <div class="settings-card" data-developer-only hidden>
+        <h3>Устройства зала: настройка</h3>
+        <p class="hint">
+          Кондиционер, вытяжка, приток, решётки каналов. Устройство сидит
+          на реле — как свет над столом — и работает по циклу: поработало
+          столько-то минут, постояло столько-то, и так по кругу. Цикл,
+          ручное включение и состояние — в разделе «Устройства», он виден
+          всем сотрудникам. Кнопка «Тест» включает реле на 2 секунды.
+          Список устройств Tuya — кнопка «Загрузить устройства из Tuya»
+          выше.
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Устройство</th><th>Вид</th><th>Цикл (мин) или положения (%)</th>
+              <th>Тип реле</th><th>Настройка</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="device-rows"></tbody>
+        </table>
+        <form id="device-add-form" class="inline-form">
+          <input id="new-device-name" type="text" placeholder="Название — например, Вытяжка" required maxlength="100">
+          <select id="new-device-type">
+            <option value="exhaust">Вытяжка</option>
+            <option value="ac">Кондиционер</option>
+            <option value="intake">Приток</option>
+            <option value="damper">Решётка канала</option>
+          </select>
+          <input id="new-device-work" type="number" placeholder="Работает, мин" required min="1" max="1440" step="1" value="15">
+          <input id="new-device-rest" type="number" placeholder="Стоит, мин" required min="0" max="1440" step="1" value="30">
+          <input id="new-device-positions" type="text" placeholder="Положения, % — например 30,50,70" value="30,50,70" hidden>
+          <button type="submit">Добавить устройство</button>
+        </form>
+        <p class="hint">
+          Решётка с одним положением (например «100») — это заслонка
+          «открыто/закрыто» на обычном реле. С несколькими — привод с
+          положениями: Tuya (команда percent_control), Tasmota со шторами
+          (ShutterPosition), Shelly в режиме roller или свой адрес с
+          подстановкой <b>{percent}</b>.
+        </p>
       </div>
 
       <div class="settings-card">

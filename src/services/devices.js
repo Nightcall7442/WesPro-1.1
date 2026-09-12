@@ -11,7 +11,12 @@
 import { utcNow } from "../db.js";
 import { logServerError } from "./diagnostics.js";
 import { ConflictError, NotFoundError } from "./errors.js";
-import { getDeviceController, parseRelayBinding } from "./lighting.js";
+import {
+  getDeviceController,
+  parseRelayBinding,
+  probeRelays,
+  relayOnline,
+} from "./lighting.js";
 
 const FIELDS =
   "id, name, type, positions, position, work_minutes, rest_minutes, cycle_on, " +
@@ -84,6 +89,8 @@ function toOut(db, row, now) {
     // дошёл (до 30 секунд), либо реле не отвечает — см. relay_error.
     should_be_on: phase.on,
     relay_error: failedSet(db).has(row.id),
+    // В сети ли реле по последнему опросу; null — реле нет или не узнать.
+    online: relayOnline(db, "device", row.id),
     switches_in_seconds: phase.switchesIn,
   };
 }
@@ -336,10 +343,16 @@ export async function runDeviceCycles(db, now = Date.now()) {
 
 /**
  * Запускает цикл устройств для этой базы: сразу и дальше по таймеру.
+ * Тем же тиком опрашиваются все реле — над столами и у устройств, —
+ * чтобы в интерфейсе было видно, кто в сети.
  * @param {import("node:sqlite").DatabaseSync} db
  */
 export function startDeviceCycles(db) {
-  const run = () => runDeviceCycles(db).catch(() => {});
+  const run = () =>
+    runDeviceCycles(db)
+      .catch(() => {})
+      .then(() => probeRelays(db))
+      .catch(() => {});
   run();
   const timer = setInterval(run, TICK_MS);
   timer.unref?.(); // таймер не должен мешать программе закрыться

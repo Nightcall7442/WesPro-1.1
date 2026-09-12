@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { phaseOf, runDeviceCycles } from "../src/services/devices.js";
-import { adminAgent, cashierAgent, makeApp } from "./helpers.js";
+import { adminAgent, cashierAgent, createTable, developerAgent, makeApp } from "./helpers.js";
 
 const MIN = 60_000;
 
@@ -171,4 +171,35 @@ test("устройство ставится на план зала и уходи
   await admin.delete(`/api/devices/${fan.body.id}`);
   const after = await admin.get("/api/plan");
   assert.deepEqual(after.body.elements.map((e) => e.type), ["wall"]);
+});
+
+test("связь с реле: опрос показывает, кто в сети, а кто молчит", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+  const dev = await developerAgent(app, db);
+  const table = await createTable(admin, "Стол у окна");
+  // Порт 1 никто не слушает — такое реле «не в сети».
+  await dev.put(`/api/tables/${table.id}/device`).send({ kind: "tasmota", host: "127.0.0.1:1" });
+  await admin.post("/api/devices").send({ name: "Вытяжка", type: "exhaust" });
+  await admin
+    .post("/api/devices")
+    .send({ name: "Приток", type: "intake", kind: "tasmota", host: "127.0.0.1:1" });
+  // Сохранение настроек поднимает настоящие драйверы реле (в тестах
+  // по умолчанию заглушка).
+  await admin.put("/api/settings").send({});
+
+  const probe = await admin.post("/api/relays/probe");
+  assert.equal(probe.status, 200);
+  assert.equal(probe.body.probed, 2);
+
+  const relays = await admin.get("/api/relays");
+  assert.equal(relays.body.length, 1);
+  assert.equal(relays.body[0].name, "Стол у окна");
+  assert.equal(relays.body[0].kind, "tasmota");
+  assert.equal(relays.body[0].online, false);
+  assert.equal(relays.body[0].light_on, false);
+
+  const devices = (await admin.get("/api/devices")).body;
+  assert.equal(devices.find((d) => d.name === "Вытяжка").online, null, "без реле — нечего опрашивать");
+  assert.equal(devices.find((d) => d.name === "Приток").online, false);
 });

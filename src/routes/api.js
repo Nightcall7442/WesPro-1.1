@@ -18,6 +18,8 @@ import {
   getLightingController,
   initLighting,
   listCloudDevices,
+  probeRelays,
+  relayOnline,
 } from "../services/lighting.js";
 import {
   backupFileName,
@@ -1176,6 +1178,32 @@ export function createApiRouter(db) {
           `${on ? "включён" : "выключен"} — ${req.user.name}`
       );
       res.json(device);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Реле над столами: кто привязан, горит ли, отвечает ли по сети.
+  // Смотрят все — это состояние зала, а не настройка.
+  router.get("/relays", (req, res) => {
+    const lighting = getLightingController(db);
+    res.json(
+      listTables(db)
+        .filter((t) => t.light_kind || t.tuya_device_id)
+        .map((t) => ({
+          table_id: t.id,
+          name: t.name,
+          kind: t.light_kind ?? "tuya",
+          light_on: lighting.isLightOn(t.id),
+          online: relayOnline(db, "table", t.id),
+        }))
+    );
+  });
+
+  // Опросить все реле прямо сейчас, не дожидаясь тика.
+  router.post("/relays/probe", async (req, res, next) => {
+    try {
+      res.json(await probeRelays(db));
     } catch (error) {
       next(error);
     }

@@ -189,6 +189,16 @@ export class HttpLightingController {
   }
 
   /**
+   * Отвечает ли реле по сети. «Своё устройство» опросить нечем — null.
+   * @returns {Promise<boolean|null>}
+   */
+  async isOnline(id) {
+    const device = this.#resolveDevice(id);
+    if (!device || device.kind === "url") return null;
+    return (await this.readLight(id)) !== null;
+  }
+
+  /**
    * Ставит привод в положение (проценты) и ждёт ответа.
    * @param {number} id @param {number} percent
    */
