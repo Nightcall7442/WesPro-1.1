@@ -9,9 +9,11 @@ import { createHubDatabase } from "./hub/db.js";
 import { createNetworkApp } from "./network-app.js";
 import { seedInitialData } from "./seed.js";
 import { startAutoBackup } from "./services/auto-backup.js";
+import { startDeviceCycles } from "./services/devices.js";
 import { startBookingReminders } from "./services/telegram.js";
 import { initLighting, syncLighting } from "./services/lighting.js";
 import { lanAddresses } from "./services/network.js";
+import { createTenants } from "./tenants.js";
 
 // Центральная панель сети клубов: своя база, свой раздел /hub.
 const hubDb = createHubDatabase();
@@ -23,7 +25,12 @@ if (networkMode()) {
   // фоновые задачи ниже не запускаются — свет в зале из облака всё
   // равно не переключить, а копии баз и напоминания в этом режиме
   // делаются иначе (см. пункт «офлайн-режим с синхронизацией»).
-  app = createNetworkApp(hubDb);
+  const tenants = createTenants(hubDb);
+  app = createNetworkApp(hubDb, { tenants });
+  // Исключение — устройства зала (вытяжка по циклу): они должны щёлкать
+  // и когда в клубе никто не открыл программу, поэтому базы уже
+  // заведённых клубов открываем сразу, а не при первом запросе.
+  tenants.openExisting();
 } else {
   const db = createDatabase();
   if (SEED_INITIAL_DATA) {
@@ -37,6 +44,8 @@ if (networkMode()) {
   startAutoBackup(db);
   // Напоминания о бронях в Telegram (если бот настроен в «Настройках»).
   startBookingReminders(db);
+  // Кондиционер, вытяжка, приток — по циклу «работает/стоит».
+  startDeviceCycles(db);
   app = createApp(db, hubDb);
 }
 
@@ -55,15 +64,20 @@ app.listen(PORT, () => {
   console.log(`Бильярдный клуб: http://127.0.0.1:${PORT}`);
   console.log(`Панель сети клубов: http://127.0.0.1:${PORT}/hub`);
   if (hubOwner) {
+    // Сгенерированный пароль печатаем — это единственный шанс его узнать.
+    // Заданный переменной в логи не попадает: на хостинге логи видны
+    // всем, у кого есть доступ к проекту, а пароль и так известен тому,
+    // кто ставил переменную.
     console.log(
-      `   Вход в панель — логин «${hubOwner.login}», пароль «${hubOwner.password}»` +
-        (hubOwner.generated ? " (сгенерирован, смените после входа)" : "")
+      hubOwner.generated
+        ? `   Вход в панель — логин «${hubOwner.login}», пароль «${hubOwner.password}» (сгенерирован, смените после входа)`
+        : `   Вход в панель — логин «${hubOwner.login}», пароль из переменной WESPRO_HUB_PASSWORD`
     );
     if (hubOwner.reset) {
       console.log(
-        "   Пароль задан переменной WESPRO_HUB_PASSWORD и будет ставиться\n" +
-          "   заново при каждом запуске. Войдите, смените пароль в панели\n" +
-          "   и уберите переменную — иначе смена не удержится."
+        "   Пароль из WESPRO_HUB_PASSWORD ставится заново при каждом запуске.\n" +
+          "   Войдите, смените пароль в панели и уберите переменную —\n" +
+          "   иначе смена не удержится."
       );
     }
   }
