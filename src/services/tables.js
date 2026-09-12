@@ -3,6 +3,7 @@
 import { utcNow, withTransaction } from "../db.js";
 import { ConflictError, NotFoundError } from "./errors.js";
 import { JournalEvent, logEvent } from "./journal.js";
+import { parseRelayBinding } from "./lighting.js";
 
 const TABLE_FIELDS =
   "id, name, status, created_at, tuya_device_id, tuya_switch_code, " +
@@ -67,24 +68,11 @@ export function setTableLayout(db, tableId, layout) {
 }
 
 /**
- * Привязывает стол к реле Tuya/MOES (или отвязывает, если deviceId пуст).
- * @param {import("node:sqlite").DatabaseSync} db
- * @param {number} tableId
- * @param {string | null} deviceId
- * @param {string | null} switchCode канал реле (switch_1 … switch_4)
- */
-/** Чем может управляться свет над столом. */
-export const LIGHT_KINDS = new Set(["tuya", "tasmota", "shelly", "url"]);
-
-/**
- * Привязка стола к реле.
+ * Привязка стола к реле. Разбор и проверка полей — общие с устройствами
+ * зала (parseRelayBinding в lighting.js); здесь только запись в стол.
  *
- * tuya — облако Tuya/MOES: нужны id устройства и канал (switch_1 …);
- * tasmota и shelly — реле в локальной сети: адрес (IP) и номер канала;
- * url — «своё устройство»: два адреса, включить и выключить.
- *
- * Пустой kind (или пустые поля) означает «свет к столу не подключён» —
- * это не ошибка, просто лампой никто не управляет.
+ * Пустой kind означает «свет к столу не подключён» — это не ошибка,
+ * просто лампой никто не управляет.
  *
  * @param {import("node:sqlite").DatabaseSync} db
  * @param {number} tableId
@@ -94,61 +82,20 @@ export const LIGHT_KINDS = new Set(["tuya", "tasmota", "shelly", "url"]);
  */
 export function setTableDevice(db, tableId, data = {}) {
   const table = getTable(db, tableId);
-  const kind = String(data.kind ?? "").trim().toLowerCase() || null;
-  if (kind !== null && !LIGHT_KINDS.has(kind)) {
-    throw new ConflictError(
-      `Неизвестный тип устройства «${kind}» (tuya, tasmota, shelly или url)`
-    );
-  }
-
-  const deviceId = String(data.device_id ?? "").trim() || null;
-  const code = String(data.switch_code ?? "").trim() || null;
-  const host = String(data.host ?? "").trim() || null;
-  const onUrl = String(data.on_url ?? "").trim() || null;
-  const offUrl = String(data.off_url ?? "").trim() || null;
-  const channel = Number(data.channel ?? 0);
-
-  if (code !== null && !/^switch_[1-4]$/.test(code)) {
-    throw new ConflictError(`Недопустимый канал реле «${code}» (switch_1 … switch_4)`);
-  }
-  if (!Number.isInteger(channel) || channel < 0 || channel > 7) {
-    throw new ConflictError("Номер канала: целое число от 0 до 7");
-  }
-  if (kind === "tuya" && !deviceId) {
-    throw new ConflictError("Для Tuya/MOES выберите устройство из списка");
-  }
-  if ((kind === "tasmota" || kind === "shelly") && !host) {
-    throw new ConflictError(
-      "Укажите адрес устройства в локальной сети — например 192.168.1.50"
-    );
-  }
-  if (host !== null && /\s/.test(host)) {
-    throw new ConflictError("В адресе устройства не должно быть пробелов");
-  }
-  if (kind === "url") {
-    for (const [label, value] of [["включения", onUrl], ["выключения", offUrl]]) {
-      if (!value) throw new ConflictError(`Укажите адрес ${label}`);
-      if (!/^https?:\/\//i.test(value)) {
-        throw new ConflictError(
-          `Адрес ${label} должен начинаться с http:// или https://`
-        );
-      }
-    }
-  }
-
+  const relay = parseRelayBinding(data);
   db.prepare(
     `UPDATE tables
        SET light_kind = ?, tuya_device_id = ?, tuya_switch_code = ?,
            light_host = ?, light_channel = ?, light_on_url = ?, light_off_url = ?
      WHERE id = ?`
   ).run(
-    kind,
-    kind === "tuya" ? deviceId : null,
-    kind === "tuya" ? code ?? "switch_1" : null,
-    kind === "tasmota" || kind === "shelly" ? host : null,
-    channel,
-    kind === "url" ? onUrl : null,
-    kind === "url" ? offUrl : null,
+    relay.light_kind,
+    relay.tuya_device_id,
+    relay.tuya_switch_code,
+    relay.light_host,
+    relay.light_channel,
+    relay.light_on_url,
+    relay.light_off_url,
     table.id
   );
   return getTable(db, table.id);

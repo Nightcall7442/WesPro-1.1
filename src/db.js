@@ -218,6 +218,30 @@ CREATE TABLE IF NOT EXISTS table_tariffs (
   tariff_id INTEGER NOT NULL REFERENCES tariffs (id) ON DELETE CASCADE,
   PRIMARY KEY (table_id, tariff_id)
 );
+
+-- Устройства зала, не связанные со столами: кондиционер, вытяжка, приток.
+-- Сеансов и тарифов у них нет — только реле и цикл «поработало
+-- work_minutes — постояло rest_minutes». Фаза считается арифметикой от
+-- cycle_started_at, а не хранится: перезапуск программы или пропущенный
+-- тик цикл не сбивают. Колонки реле названы как у столов — код привязки
+-- и драйверы общие (см. lighting.js).
+CREATE TABLE IF NOT EXISTS devices (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  name             TEXT NOT NULL UNIQUE,
+  work_minutes     INTEGER NOT NULL DEFAULT 15 CHECK (work_minutes > 0),
+  rest_minutes     INTEGER NOT NULL DEFAULT 30 CHECK (rest_minutes >= 0),
+  cycle_on         INTEGER NOT NULL DEFAULT 0,
+  cycle_started_at TEXT,
+  is_on            INTEGER NOT NULL DEFAULT 0,
+  light_kind       TEXT,
+  light_host       TEXT,
+  light_channel    INTEGER NOT NULL DEFAULT 0,
+  light_on_url     TEXT,
+  light_off_url    TEXT,
+  tuya_device_id   TEXT,
+  tuya_switch_code TEXT,
+  created_at       TEXT NOT NULL
+);
 `;
 
 /**
@@ -299,7 +323,7 @@ function migratePlanElementTypes(db) {
  * Держится в самой базе (settings.schema_version) и показывается в
  * «Диагностике».
  */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 /** Что появилось в каждой версии — для отчёта и для разбора жалоб. */
 export const SCHEMA_HISTORY = [
@@ -313,6 +337,7 @@ export const SCHEMA_HISTORY = [
   [8, "акции, подарочные часы, оплата труда"],
   [9, "напоминания о бронях, вид чека, подарочные чеки"],
   [10, "реле по локальной сети: Tasmota, Shelly, свой адрес"],
+  [11, "устройства зала по циклу: кондиционер, вытяжка, приток"],
 ];
 
 /** Записывает версию схемы в саму базу — после того как схема доросла. */

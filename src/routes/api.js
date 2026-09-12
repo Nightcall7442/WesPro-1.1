@@ -52,6 +52,14 @@ import {
   importConfig,
 } from "../services/config-transfer.js";
 import { checkupData, fixData } from "../services/doctor.js";
+import {
+  createDevice,
+  deleteDevice,
+  listDevices,
+  setDeviceCycle,
+  setDevicePower,
+  updateDevice,
+} from "../services/devices.js";
 import { describeSchema, runReadOnlyQuery } from "../services/sql-console.js";
 import { networkMode, RESTART_EXIT_CODE } from "../config.js";
 import { clearRequests, recentRequests } from "../services/request-log.js";
@@ -1071,6 +1079,85 @@ export function createApiRouter(db) {
     try {
       requireDeveloper(req);
       res.json(await syncLighting(db));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // --- Устройства зала: кондиционер, вытяжка, приток ----------------------
+  // Не столы: без сеансов и тарифов, только реле и цикл «работает N минут —
+  // стоит M». Щёлкать и включать цикл может любой сотрудник (это как
+  // выключатель на стене), заводить и настраивать — кто ведёт настройки.
+
+  router.get("/devices", (req, res) => {
+    res.json(listDevices(db));
+  });
+
+  router.post("/devices", (req, res) => {
+    requirePermission(db, req, "manage_settings");
+    const device = createDevice(db, req.body ?? {});
+    logEvent(
+      db,
+      JournalEvent.SETTINGS_UPDATED,
+      `Добавлено устройство «${device.name}» — ${req.user.name}`
+    );
+    res.status(201).json(device);
+  });
+
+  router.put("/devices/:id", (req, res) => {
+    requirePermission(db, req, "manage_settings");
+    const id = intParam(req.params.id);
+    if (id === null) return res.status(404).json({ detail: "Устройство не найдено" });
+    res.json(updateDevice(db, id, req.body ?? {}));
+  });
+
+  router.delete("/devices/:id", async (req, res, next) => {
+    try {
+      requirePermission(db, req, "manage_settings");
+      const id = intParam(req.params.id);
+      if (id === null) return res.status(404).json({ detail: "Устройство не найдено" });
+      const device = await deleteDevice(db, id);
+      logEvent(
+        db,
+        JournalEvent.SETTINGS_UPDATED,
+        `Удалено устройство «${device.name}» — ${req.user.name}`
+      );
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/devices/:id/power", async (req, res, next) => {
+    try {
+      const id = intParam(req.params.id);
+      if (id === null) return res.status(404).json({ detail: "Устройство не найдено" });
+      const on = Boolean(req.body?.on);
+      const device = await setDevicePower(db, id, on);
+      logEvent(
+        db,
+        on ? JournalEvent.DEVICE_ON : JournalEvent.DEVICE_OFF,
+        `${on ? "Включено" : "Выключено"} устройство «${device.name}» вручную — ${req.user.name}`
+      );
+      res.json(device);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/devices/:id/cycle", async (req, res, next) => {
+    try {
+      const id = intParam(req.params.id);
+      if (id === null) return res.status(404).json({ detail: "Устройство не найдено" });
+      const on = Boolean(req.body?.on);
+      const device = await setDeviceCycle(db, id, on);
+      logEvent(
+        db,
+        JournalEvent.DEVICE_CYCLE,
+        `«${device.name}»: цикл ${device.work_minutes}/${device.rest_minutes} мин ` +
+          `${on ? "включён" : "выключен"} — ${req.user.name}`
+      );
+      res.json(device);
     } catch (error) {
       next(error);
     }

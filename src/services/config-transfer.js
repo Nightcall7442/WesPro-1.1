@@ -87,6 +87,11 @@ export function exportConfig(db) {
     menu_items: db
       .prepare("SELECT name, price, category, is_active FROM menu_items ORDER BY id")
       .all(),
+    // Устройства зала — название и цикл. Реле, как и у столов, не
+    // переносится: адреса и ключи привязаны к конкретному помещению.
+    devices: db
+      .prepare("SELECT name, work_minutes, rest_minutes FROM devices ORDER BY id")
+      .all(),
   };
 }
 
@@ -152,6 +157,7 @@ export function importConfig(db, data, user) {
     plan_elements: 0,
     role_permissions: 0,
     menu_items: 0,
+    devices: 0,
   };
 
   withTransaction(db, () => {
@@ -341,6 +347,34 @@ export function importConfig(db, data, user) {
           utcNow()
         );
         applied.menu_items += 1;
+      }
+    }
+
+    // Устройства зала: одноимённым обновляем цикл, новые добавляем
+    // (без реле и выключенными — реле подключат на месте).
+    if (Array.isArray(data.devices)) {
+      const insertDevice = db.prepare(
+        `INSERT INTO devices (name, work_minutes, rest_minutes, created_at)
+         VALUES (?, ?, ?, ?)`
+      );
+      for (const device of data.devices) {
+        const name = String(device.name ?? "").trim();
+        const work = Number(device.work_minutes);
+        const rest = Number(device.rest_minutes);
+        if (!name || !Number.isInteger(work) || work < 1 || !Number.isInteger(rest) || rest < 0) {
+          continue; // битая строка в файле — не повод ронять весь перенос
+        }
+        const existing = db.prepare("SELECT id FROM devices WHERE name = ?").get(name);
+        if (existing) {
+          db.prepare("UPDATE devices SET work_minutes = ?, rest_minutes = ? WHERE id = ?").run(
+            work,
+            rest,
+            existing.id
+          );
+        } else {
+          insertDevice.run(name, work, rest, utcNow());
+        }
+        applied.devices += 1;
       }
     }
 

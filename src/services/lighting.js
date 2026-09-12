@@ -15,6 +15,78 @@ import { getSettings } from "./settings.js";
 import { HttpLightingController, HTTP_KINDS } from "./lighting-http.js";
 import { TuyaLightingController } from "./lighting-tuya.js";
 
+/** Чем может управляться реле: свет над столом или устройство зала. */
+export const LIGHT_KINDS = new Set(["tuya", "tasmota", "shelly", "url"]);
+
+/**
+ * Разбор и проверка привязки к реле — одна на столы и на устройства зала.
+ *
+ * tuya — облако Tuya/MOES: нужны id устройства и канал (switch_1 …);
+ * tasmota и shelly — реле в локальной сети: адрес (IP) и номер канала;
+ * url — «своё устройство»: два адреса, включить и выключить.
+ * Пустой kind — «реле не подключено»: это не ошибка.
+ *
+ * @param {{kind?: string|null, device_id?: string|null, switch_code?: string|null,
+ *          host?: string|null, channel?: number|null,
+ *          on_url?: string|null, off_url?: string|null}} data
+ * @returns {{light_kind: string|null, tuya_device_id: string|null,
+ *   tuya_switch_code: string|null, light_host: string|null, light_channel: number,
+ *   light_on_url: string|null, light_off_url: string|null}} колонки как в базе
+ */
+export function parseRelayBinding(data = {}) {
+  const kind = String(data.kind ?? "").trim().toLowerCase() || null;
+  if (kind !== null && !LIGHT_KINDS.has(kind)) {
+    throw new ConflictError(
+      `Неизвестный тип устройства «${kind}» (tuya, tasmota, shelly или url)`
+    );
+  }
+
+  const deviceId = String(data.device_id ?? "").trim() || null;
+  const code = String(data.switch_code ?? "").trim() || null;
+  const host = String(data.host ?? "").trim() || null;
+  const onUrl = String(data.on_url ?? "").trim() || null;
+  const offUrl = String(data.off_url ?? "").trim() || null;
+  const channel = Number(data.channel ?? 0);
+
+  if (code !== null && !/^switch_[1-4]$/.test(code)) {
+    throw new ConflictError(`Недопустимый канал реле «${code}» (switch_1 … switch_4)`);
+  }
+  if (!Number.isInteger(channel) || channel < 0 || channel > 7) {
+    throw new ConflictError("Номер канала: целое число от 0 до 7");
+  }
+  if (kind === "tuya" && !deviceId) {
+    throw new ConflictError("Для Tuya/MOES выберите устройство из списка");
+  }
+  if ((kind === "tasmota" || kind === "shelly") && !host) {
+    throw new ConflictError(
+      "Укажите адрес устройства в локальной сети — например 192.168.1.50"
+    );
+  }
+  if (host !== null && /\s/.test(host)) {
+    throw new ConflictError("В адресе устройства не должно быть пробелов");
+  }
+  if (kind === "url") {
+    for (const [label, value] of [["включения", onUrl], ["выключения", offUrl]]) {
+      if (!value) throw new ConflictError(`Укажите адрес ${label}`);
+      if (!/^https?:\/\//i.test(value)) {
+        throw new ConflictError(
+          `Адрес ${label} должен начинаться с http:// или https://`
+        );
+      }
+    }
+  }
+
+  return {
+    light_kind: kind,
+    tuya_device_id: kind === "tuya" ? deviceId : null,
+    tuya_switch_code: kind === "tuya" ? code ?? "switch_1" : null,
+    light_host: kind === "tasmota" || kind === "shelly" ? host : null,
+    light_channel: channel,
+    light_on_url: kind === "url" ? onUrl : null,
+    light_off_url: kind === "url" ? offUrl : null,
+  };
+}
+
 export class MockLightingController {
   #on = new Set();
 
@@ -136,7 +208,12 @@ const states = new WeakMap();
 function stateFor(db) {
   let state = states.get(db);
   if (!state) {
-    state = { controller: new MockLightingController(), tuyaClient: null, driver: "mock" };
+    state = {
+      controller: new MockLightingController(),
+      devices: new MockLightingController(),
+      tuyaClient: null,
+      driver: "mock",
+    };
     states.set(db, state);
   }
   return state;
@@ -155,15 +232,20 @@ export async function initLighting(db) {
   const state = stateFor(db);
   state.tuyaClient = null;
 
-  // Строка стола: по ней общий контроллер понимает, куда слать команду.
+  // Строка стола (или устройства зала): по ней общий контроллер понимает,
+  // куда слать команду. Колонки реле у devices названы как у tables —
+  // ради вот этого общего кода.
+  const RELAY_COLUMNS =
+    "tuya_device_id, tuya_switch_code, light_kind, light_host, light_channel, light_on_url, light_off_url";
   const resolveRow = (tableId) =>
-    db
-      .prepare(
-        `SELECT tuya_device_id, tuya_switch_code,
-                light_kind, light_host, light_channel, light_on_url, light_off_url
-         FROM tables WHERE id = ?`
-      )
-      .get(tableId) ?? null;
+    db.prepare(`SELECT ${RELAY_COLUMNS} FROM tables WHERE id = ?`).get(tableId) ?? null;
+  const resolveDeviceRow = (deviceId) =>
+    db.prepare(`SELECT ${RELAY_COLUMNS} FROM devices WHERE id = ?`).get(deviceId) ?? null;
+  const tuyaFor = (client, resolve) =>
+    new TuyaLightingController(client, (id) => {
+      const row = resolve(id);
+      return row ? { device_id: row.tuya_device_id, switch_code: row.tuya_switch_code } : null;
+    });
 
   // Локальные реле (Tasmota, Shelly, свой адрес) работают всегда: им не
   // нужны ни ключи, ни интернет. Облако Tuya подключаем, если настроено.
@@ -181,12 +263,7 @@ export async function initLighting(db) {
         accessKey: settings.tuya_access_id,
         secretKey: settings.tuya_access_secret,
       });
-      tuya = new TuyaLightingController(state.tuyaClient, (tableId) => {
-        const row = resolveRow(tableId);
-        return row
-          ? { device_id: row.tuya_device_id, switch_code: row.tuya_switch_code }
-          : null;
-      });
+      tuya = tuyaFor(state.tuyaClient, resolveRow);
       console.info("Tuya lighting: драйвер включён");
     } catch (err) {
       error = err.message;
@@ -201,6 +278,12 @@ export async function initLighting(db) {
   }
 
   state.controller = new CompositeLightingController(resolveRow, tuya);
+  // Устройства зала (кондиционер, вытяжка, приток) — те же драйверы, но
+  // свой контроллер: у столов и устройств разные номера.
+  state.devices = new CompositeLightingController(
+    resolveDeviceRow,
+    tuya ? tuyaFor(state.tuyaClient, resolveDeviceRow) : null
+  );
   state.driver = tuya ? "tuya" : "mock";
   return error ? { driver: state.driver, error } : { driver: state.driver };
 }
@@ -211,6 +294,14 @@ export async function initLighting(db) {
  */
 export function getLightingController(db) {
   return stateFor(db).controller;
+}
+
+/**
+ * Контроллер реле устройств зала этой базы (см. services/devices.js).
+ * @param {import("node:sqlite").DatabaseSync} db
+ */
+export function getDeviceController(db) {
+  return stateFor(db).devices;
 }
 
 /**

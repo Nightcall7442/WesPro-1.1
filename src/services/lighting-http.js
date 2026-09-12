@@ -35,10 +35,17 @@ function normalizeHost(host) {
 }
 
 async function request(url) {
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: { Accept: "application/json, text/plain, */*" },
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: { Accept: "application/json, text/plain, */*" },
+    });
+  } catch (error) {
+    // Своими словами, а не «The operation was aborted due to timeout».
+    if (error.name === "TimeoutError") throw new Error("реле не отвечает по сети");
+    throw new Error(`реле недоступно: ${error.cause?.message ?? error.message}`);
+  }
   const text = await response.text();
   if (!response.ok) {
     throw new Error(`устройство ответило ${response.status}: ${text.slice(0, 120)}`);

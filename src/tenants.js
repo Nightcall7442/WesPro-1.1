@@ -20,6 +20,8 @@ import { CLUBS_DIR } from "./config.js";
 import { createDatabase } from "./db.js";
 import { hubSettings } from "./hub/db.js";
 import { seedNetworkClub } from "./seed.js";
+import { startDeviceCycles } from "./services/devices.js";
+import { initLighting } from "./services/lighting.js";
 import { saveSettings } from "./services/settings.js";
 
 /**
@@ -34,7 +36,7 @@ import { saveSettings } from "./services/settings.js";
  * @param {{dir?: string}} [options]
  */
 export function createTenants(hubDb, { dir = CLUBS_DIR } = {}) {
-  /** @type {Map<number, {db: import("node:sqlite").DatabaseSync, app: import("express").Express}>} */
+  /** @type {Map<number, {db: import("node:sqlite").DatabaseSync, app: import("express").Express, timer?: NodeJS.Timeout}>} */
   const opened = new Map();
 
   const ownerRow = (clubId) =>
@@ -80,7 +82,37 @@ export function createTenants(hubDb, { dir = CLUBS_DIR } = {}) {
       // приложении. Клуб не должен получить к ним доступ даже случайно.
       const tenant = { db, app: createApp(db) };
       opened.set(club.id, tenant);
+      // Реле (облако Tuya достижимо и с хостинга) и цикл устройств зала —
+      // с момента открытия базы, а не после первого сохранения настроек.
+      initLighting(db)
+        .catch(() => {}) // реле не критичны: клуб работает и без них
+        .then(() => {
+          if (opened.get(club.id) === tenant) tenant.timer = startDeviceCycles(db);
+        });
       return tenant;
+    },
+
+    /**
+     * Открывает базы уже заведённых клубов. Нужно при запуске сервера:
+     * цикл устройств зала должен идти и без единого запроса от клуба.
+     * Папки без базы (брошенные регистрации) не трогаем.
+     */
+    openExisting() {
+      let names = [];
+      try {
+        names = fs.readdirSync(dir);
+      } catch {
+        return 0; // папки клубов ещё нет — ни одного клуба не заведено
+      }
+      let count = 0;
+      for (const name of names) {
+        const id = Number(name);
+        if (!Number.isInteger(id)) continue;
+        if (!fs.existsSync(path.join(dir, name, "billiards.db"))) continue;
+        this.for({ id });
+        count += 1;
+      }
+      return count;
     },
 
     /** Аккаунт владельца в программе клуба (тот, что заведён при регистрации). */
@@ -111,7 +143,10 @@ export function createTenants(hubDb, { dir = CLUBS_DIR } = {}) {
 
     /** Закрывает все открытые базы (завершение работы, тесты). */
     close() {
-      for (const { db } of opened.values()) db.close();
+      for (const { db, timer } of opened.values()) {
+        clearInterval(timer);
+        db.close();
+      }
       opened.clear();
     },
   };

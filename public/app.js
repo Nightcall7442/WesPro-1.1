@@ -19,6 +19,7 @@ const state = {
   tariffChoice: new Map(), // table_id -> выбранный tariff_id в селекте
   clientDraft: new Map(),  // table_id -> набранный текст в поле клиента
   devices: [],         // устройства Tuya для вкладки «Настройки»
+  hallDevices: [],     // кондиционер, вытяжка, приток — плашки на «Залах»
   user: null,          // текущий сотрудник {id, name, role}
   permissions: {},     // права текущей роли — {manage_tables: bool, ...}
   shift: null,         // открытая кассовая смена или null
@@ -1577,6 +1578,7 @@ function renderTables() {
 function tick() {
   if (state.editMode) return;
   checkTimeWarnings();
+  if (activeTab === "dashboard") updateDeviceCountdowns();
   if (activeTab === "dashboard" && isPhoneMode()) {
     for (const table of state.tables) {
       const row = document.querySelector(`.phone-row[data-table-id="${table.id}"]`);
@@ -1613,12 +1615,13 @@ function tick() {
 
 async function refreshDashboard() {
   if (state.editMode) return; // пока редактируют план — данные не трогаем
-  const [tables, tariffs, auto, plan, promo] = await Promise.all([
+  const [tables, tariffs, auto, plan, promo, devices] = await Promise.all([
     api("/api/dashboard"),
     api("/api/tariffs"),
     api("/api/tariffs/auto"),
     api("/api/plan"),
     api("/api/promotions/active").catch(() => ({ promotion: null })),
+    api("/api/devices").catch(() => []),
   ]);
   state.promotion = promo.promotion ?? null;
   // Стол продлили — время снова есть, значит и предупредить о нём надо
@@ -1638,6 +1641,96 @@ async function refreshDashboard() {
   state.plan = plan;
   state.fetchedAt = performance.now();
   renderTables();
+  renderDevicesBar(devices);
+  state.hallDevices = devices;
+}
+
+// ------------------------------------------- устройства зала (вытяжка и т. п.)
+
+/** «через 7 мин» / «через 40 с» — до смены фазы цикла. */
+function formatSwitchIn(seconds) {
+  if (seconds >= 90) return `через ${Math.round(seconds / 60)} мин`;
+  return `через ${Math.max(0, Math.round(seconds))} с`;
+}
+
+/** Подпись состояния устройства для плашки. secondsLeft — уже с учётом
+ * времени, прошедшего после ответа сервера. */
+function deviceStatusText(device, secondsLeft) {
+  let text = device.is_on ? "работает" : "стоит";
+  if (device.cycle_on && device.should_be_on !== device.is_on) {
+    return `${text} · реле не отвечает, пробуем снова`;
+  }
+  if (device.cycle_on) {
+    text +=
+      secondsLeft === null
+        ? " · цикл без пауз"
+        : ` · ${device.is_on ? "выключится" : "включится"} ${formatSwitchIn(secondsLeft)}`;
+  }
+  return text;
+}
+
+/** Секундная стрелка плашек: между опросами сервера отсчёт идёт сам. */
+function updateDeviceCountdowns() {
+  const elapsed = (performance.now() - state.fetchedAt) / 1000;
+  for (const device of state.hallDevices) {
+    const label = document.querySelector(
+      `.device-chip[data-device-id="${device.id}"] .device-status`
+    );
+    if (!label) continue;
+    const left =
+      device.switches_in_seconds === null ? null : device.switches_in_seconds - elapsed;
+    label.textContent = deviceStatusText(device, left);
+  }
+}
+
+/**
+ * Плашка устройства: состояние, когда переключится, кнопки «включить/
+ * выключить» и «цикл». Это не стол: ни таймера, ни денег — только реле.
+ */
+function buildDeviceChip(device) {
+  const chip = document.createElement("div");
+  chip.className = `device-chip${device.is_on ? " on" : ""}`;
+  chip.dataset.deviceId = device.id;
+
+  const name = document.createElement("b");
+  name.textContent = device.name;
+
+  const status = document.createElement("span");
+  status.className = "device-status";
+  status.textContent = deviceStatusText(device, device.switches_in_seconds);
+
+  const call = async (url, on) => {
+    try {
+      await api(url, { method: "POST", body: JSON.stringify({ on }) });
+      await refreshDashboard();
+    } catch (error) {
+      showToast(error.message);
+    }
+  };
+  const power = document.createElement("button");
+  power.className = "mini";
+  power.textContent = device.is_on ? "Выключить" : "Включить";
+  power.title = device.cycle_on
+    ? "Переключить сейчас — цикл начнётся заново с этой фазы"
+    : "Переключить реле";
+  power.addEventListener("click", () => call(`/api/devices/${device.id}/power`, !device.is_on));
+
+  const cycle = document.createElement("button");
+  cycle.className = `mini${device.cycle_on ? " active" : ""}`;
+  cycle.textContent = `Цикл ${device.work_minutes}/${device.rest_minutes}`;
+  cycle.title = device.cycle_on
+    ? `Работает ${device.work_minutes} мин, стоит ${device.rest_minutes} — по кругу. Нажмите, чтобы остановить`
+    : `Запустить по кругу: работает ${device.work_minutes} мин, стоит ${device.rest_minutes}`;
+  cycle.addEventListener("click", () => call(`/api/devices/${device.id}/cycle`, !device.cycle_on));
+
+  chip.append(name, status, power, cycle);
+  return chip;
+}
+
+function renderDevicesBar(devices) {
+  const bar = document.getElementById("devices-bar");
+  bar.replaceChildren(...devices.map(buildDeviceChip));
+  bar.hidden = devices.length === 0;
 }
 
 async function loadClients() {
@@ -2585,6 +2678,9 @@ const EVENT_LABELS = {
   session_closed: "Сеанс закрыт",
   light_on: "Свет включён",
   light_off: "Свет выключен",
+  device_on: "Устройство включено",
+  device_off: "Устройство выключено",
+  device_cycle: "Цикл устройства",
   shift_opened: "Смена открыта",
   shift_closed: "Смена закрыта",
   user_created: "Создан сотрудник",
@@ -5586,9 +5682,9 @@ function buildDeviceSelect(current) {
   return select;
 }
 
-/** Типы устройств, которыми можно управлять светом над столом. */
+/** Типы реле: свет над столом и устройства зала управляются одними и теми же. */
 const LIGHT_KINDS = [
-  ["", "— свет не подключён —"],
+  ["", "— без реле —"],
   ["tuya", "Tuya / MOES (через облако)"],
   ["tasmota", "Tasmota — Sonoff и др. (в локальной сети)"],
   ["shelly", "Shelly (в локальной сети)"],
@@ -5596,17 +5692,12 @@ const LIGHT_KINDS = [
 ];
 
 /**
- * Строка привязки стола к реле. Поля меняются под выбранный тип: у
- * облачных Tuya это список устройств и канал, у локальных — адрес в
- * сети, у «своего устройства» — два адреса.
+ * Ячейки привязки к реле — общие для стола и устройства зала: тип
+ * устройства и поля под него. У облачных Tuya это список устройств и
+ * канал, у локальных — адрес в сети, у «своего устройства» — два адреса.
+ * save зовётся при каждом изменении; payload() — то, что шлём серверу.
  */
-function buildBindingRow(table) {
-  const tr = document.createElement("tr");
-
-  const nameCell = document.createElement("td");
-  nameCell.textContent = table.name;
-
-  // Тип устройства.
+function buildRelayFields(item, save) {
   const kindCell = document.createElement("td");
   const kindSelect = document.createElement("select");
   for (const [value, label] of LIGHT_KINDS) {
@@ -5616,14 +5707,14 @@ function buildBindingRow(table) {
     kindSelect.append(option);
   }
   // Старые базы: тип не записан, но устройство Tuya привязано.
-  kindSelect.value = table.light_kind ?? (table.tuya_device_id ? "tuya" : "");
+  kindSelect.value = item.light_kind ?? (item.tuya_device_id ? "tuya" : "");
   kindCell.append(kindSelect);
 
   // Поля настройки — своя ячейка, содержимое зависит от типа.
   const settingsCell = document.createElement("td");
   settingsCell.className = "binding-fields";
 
-  const deviceSelect = buildDeviceSelect(table.tuya_device_id);
+  const deviceSelect = buildDeviceSelect(item.tuya_device_id);
   const switchSelect = document.createElement("select");
   for (const code of SWITCH_CODES) {
     const option = document.createElement("option");
@@ -5631,12 +5722,12 @@ function buildBindingRow(table) {
     option.textContent = code.replace("switch_", "Канал ");
     switchSelect.append(option);
   }
-  switchSelect.value = table.tuya_switch_code ?? "switch_1";
+  switchSelect.value = item.tuya_switch_code ?? "switch_1";
 
   const hostInput = document.createElement("input");
   hostInput.type = "text";
   hostInput.placeholder = "192.168.1.50";
-  hostInput.value = table.light_host ?? "";
+  hostInput.value = item.light_host ?? "";
   hostInput.size = 16;
 
   const channelInput = document.createElement("input");
@@ -5644,17 +5735,17 @@ function buildBindingRow(table) {
   channelInput.min = "0";
   channelInput.max = "7";
   channelInput.title = "Номер канала на модуле (0 — первый)";
-  channelInput.value = String(table.light_channel ?? 0);
+  channelInput.value = String(item.light_channel ?? 0);
   channelInput.size = 3;
 
   const onInput = document.createElement("input");
   onInput.type = "text";
   onInput.placeholder = "http://…/on";
-  onInput.value = table.light_on_url ?? "";
+  onInput.value = item.light_on_url ?? "";
   const offInput = document.createElement("input");
   offInput.type = "text";
   offInput.placeholder = "http://…/off";
-  offInput.value = table.light_off_url ?? "";
+  offInput.value = item.light_off_url ?? "";
 
   const wrap = (label, node) => {
     const box = document.createElement("label");
@@ -5678,26 +5769,6 @@ function buildBindingRow(table) {
   };
   applyKind();
 
-  const save = async () => {
-    try {
-      await api(`/api/tables/${table.id}/device`, {
-        method: "PUT",
-        body: JSON.stringify({
-          kind: kindSelect.value || null,
-          device_id: deviceSelect.value || null,
-          switch_code: switchSelect.value,
-          host: hostInput.value,
-          channel: Number(channelInput.value),
-          on_url: onInput.value,
-          off_url: offInput.value,
-        }),
-      });
-      showToast(`${table.name}: привязка сохранена`, true);
-    } catch (error) {
-      showToast(error.message);
-    }
-  };
-
   kindSelect.addEventListener("change", () => {
     applyKind();
     // Пустой тип сохраняем сразу — это «отвязать»; остальное после
@@ -5708,25 +5779,31 @@ function buildBindingRow(table) {
     field.addEventListener("change", save);
   }
 
-  // Проверка: щёлкнуть реле на две секунды.
-  const testCell = document.createElement("td");
+  const payload = () => ({
+    kind: kindSelect.value || null,
+    device_id: deviceSelect.value || null,
+    switch_code: switchSelect.value,
+    host: hostInput.value,
+    channel: Number(channelInput.value),
+    on_url: onInput.value,
+    off_url: offInput.value,
+  });
+  return { kindCell, settingsCell, payload };
+}
+
+/** Кнопка «Тест»: щёлкнуть реле на две секунды. powerUrl принимает {on}. */
+function buildTestButton(powerUrl) {
   const testBtn = document.createElement("button");
   testBtn.className = "mini";
   testBtn.textContent = "Тест";
-  testBtn.title = "Включить свет на 2 секунды";
+  testBtn.title = "Включить на 2 секунды";
   testBtn.addEventListener("click", async () => {
     testBtn.disabled = true;
     try {
-      await api(`/api/tables/${table.id}/light`, {
-        method: "POST",
-        body: JSON.stringify({ on: true }),
-      });
+      await api(powerUrl, { method: "POST", body: JSON.stringify({ on: true }) });
       setTimeout(async () => {
         try {
-          await api(`/api/tables/${table.id}/light`, {
-            method: "POST",
-            body: JSON.stringify({ on: false }),
-          });
+          await api(powerUrl, { method: "POST", body: JSON.stringify({ on: false }) });
         } finally {
           testBtn.disabled = false;
         }
@@ -5736,10 +5813,118 @@ function buildBindingRow(table) {
       testBtn.disabled = false;
     }
   });
-  testCell.append(testBtn);
+  return testBtn;
+}
 
-  tr.append(nameCell, kindCell, settingsCell, testCell);
+/** Строка привязки стола к реле. */
+function buildBindingRow(table) {
+  const tr = document.createElement("tr");
+  const nameCell = document.createElement("td");
+  nameCell.textContent = table.name;
+
+  const save = async () => {
+    try {
+      await api(`/api/tables/${table.id}/device`, {
+        method: "PUT",
+        body: JSON.stringify(relay.payload()),
+      });
+      showToast(`${table.name}: привязка сохранена`, true);
+    } catch (error) {
+      showToast(error.message);
+    }
+  };
+  const relay = buildRelayFields(table, save);
+
+  const testCell = document.createElement("td");
+  testCell.append(buildTestButton(`/api/tables/${table.id}/light`));
+
+  tr.append(nameCell, relay.kindCell, relay.settingsCell, testCell);
   return tr;
+}
+
+/**
+ * Строка устройства зала (кондиционер, вытяжка, приток): название, цикл
+ * «работает/стоит» в минутах и та же привязка к реле, что у столов.
+ * Сохраняется при любом изменении — сервер получает всю строку целиком.
+ */
+function buildDeviceRow(device) {
+  const tr = document.createElement("tr");
+  const numberInput = (value, min) => {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = String(min);
+    input.max = "1440";
+    input.step = "1";
+    input.value = String(value);
+    input.size = 4;
+    return input;
+  };
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.maxLength = 100;
+  nameInput.value = device.name;
+  nameInput.size = 14;
+  const workInput = numberInput(device.work_minutes, 1);
+  const restInput = numberInput(device.rest_minutes, 0);
+
+  const save = async () => {
+    try {
+      await api(`/api/devices/${device.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: nameInput.value.trim(),
+          work_minutes: Number(workInput.value),
+          rest_minutes: Number(restInput.value),
+          ...relay.payload(),
+        }),
+      });
+      showToast(`${nameInput.value.trim()}: сохранено`, true);
+    } catch (error) {
+      showToast(error.message);
+    }
+  };
+  const relay = buildRelayFields(device, save);
+  for (const field of [nameInput, workInput, restInput]) {
+    field.addEventListener("change", save);
+  }
+
+  const actionsCell = document.createElement("td");
+  const del = document.createElement("button");
+  del.className = "mini danger";
+  del.textContent = "Удалить";
+  del.addEventListener("click", async () => {
+    if (!confirm(`Удалить устройство «${device.name}»?`)) return;
+    try {
+      await api(`/api/devices/${device.id}`, { method: "DELETE" });
+      showToast("Устройство удалено", true);
+      renderDeviceRows(await api("/api/devices"));
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  actionsCell.append(buildTestButton(`/api/devices/${device.id}/power`), " ", del);
+
+  const cell = (node) => {
+    const td = document.createElement("td");
+    td.append(node);
+    return td;
+  };
+  tr.append(
+    cell(nameInput),
+    cell(workInput),
+    cell(restInput),
+    relay.kindCell,
+    relay.settingsCell,
+    actionsCell
+  );
+  return tr;
+}
+
+function renderDeviceRows(devices) {
+  const rows = document.getElementById("device-rows");
+  rows.replaceChildren();
+  for (const device of devices) rows.append(buildDeviceRow(device));
+  document.getElementById("devices-empty").hidden = devices.length > 0;
 }
 
 function renderBindings(tables) {
@@ -5784,9 +5969,10 @@ function currentCurrencyValue() {
 }
 
 async function refreshSettings() {
-  const [settings, tables] = await Promise.all([
+  const [settings, tables, devices] = await Promise.all([
     api("/api/settings"),
     api("/api/tables"),
+    api("/api/devices"),
   ]);
   document.getElementById("set-driver").value = settings.lighting_driver;
   document.getElementById("set-host").value = settings.tuya_api_host;
@@ -5804,6 +5990,7 @@ async function refreshSettings() {
   renderLogoPreview(settings.club_logo);
   setupLogoScale(settings.club_logo_height);
   renderBindings(tables);
+  renderDeviceRows(devices);
   document.getElementById("board-url").textContent = `${location.origin}/board`;
   document.getElementById("set-tg-token").value = settings.telegram_bot_token;
   document.getElementById("set-tg-chat").value = settings.telegram_chat_id;
@@ -6743,6 +6930,7 @@ async function loadDevices() {
     state.devices = await api("/api/settings/devices");
     status.textContent = `Найдено устройств: ${state.devices.length}`;
     renderBindings(await api("/api/tables"));
+    renderDeviceRows(await api("/api/devices"));
   } catch (error) {
     status.textContent = "";
     showToast(error.message);
@@ -7206,6 +7394,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       kindSelect.value = "billiard";
       showToast("Стол добавлен — перетащите его на место", true);
       await reloadTablesKeepingEditor();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  document.getElementById("device-add-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nameInput = document.getElementById("new-device-name");
+    try {
+      await api("/api/devices", {
+        method: "POST",
+        body: JSON.stringify({
+          name: nameInput.value.trim(),
+          work_minutes: Number(document.getElementById("new-device-work").value),
+          rest_minutes: Number(document.getElementById("new-device-rest").value),
+        }),
+      });
+      nameInput.value = "";
+      showToast("Устройство добавлено — выберите ему реле", true);
+      renderDeviceRows(await api("/api/devices"));
     } catch (error) {
       showToast(error.message);
     }

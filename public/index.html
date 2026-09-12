@@ -95,6 +95,9 @@
         </div>
         <span id="club-load" class="club-load"></span>
       </div>
+      <!-- Устройства зала (кондиционер, вытяжка, приток): не столы —
+           без сеансов и времени, только «работает/стоит» по циклу. -->
+      <div id="devices-bar" class="devices-bar" hidden></div>
       <div id="map-wrap" class="map-wrap" hidden>
         <div class="plan-scroll">
           <div id="plan" class="plan"></div>
@@ -861,6 +864,33 @@
           </thead>
           <tbody id="binding-rows"></tbody>
         </table>
+      </div>
+
+      <div class="settings-card">
+        <h3>Устройства зала: кондиционер, вытяжка, приток</h3>
+        <p class="hint">
+          Это не столы: сеансов и времени у них нет. Устройство сидит на
+          реле (как свет над столом) и работает по циклу: поработало
+          столько-то минут — постояло столько-то, и так по кругу. Цикл
+          включают и выключают на экране «Залы», там же устройство можно
+          щёлкнуть вручную. Кнопка «Тест» включает реле на 2 секунды.
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Устройство</th><th>Работает, мин</th><th>Стоит, мин</th>
+              <th>Тип реле</th><th>Настройка</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="device-rows"></tbody>
+        </table>
+        <p id="devices-empty" class="empty" hidden>Устройств пока нет.</p>
+        <form id="device-add-form" class="inline-form">
+          <input id="new-device-name" type="text" placeholder="Название — например, Вытяжка" required maxlength="100">
+          <input id="new-device-work" type="number" placeholder="Работает, мин" required min="1" max="1440" step="1" value="15">
+          <input id="new-device-rest" type="number" placeholder="Стоит, мин" required min="0" max="1440" step="1" value="30">
+          <button type="submit">Добавить устройство</button>
+        </form>
       </div>
 
       <div class="settings-card">

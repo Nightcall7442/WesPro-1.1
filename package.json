@@ -1,6 +1,6 @@
 {
   "name": "billiards-club",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "description": "Система управления бильярдным клубом: столы, тарифы, сеансы, живой таймер",
   "type": "module",
   "main": "src/server.js",

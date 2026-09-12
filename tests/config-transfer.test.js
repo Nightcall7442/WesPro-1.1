@@ -31,6 +31,9 @@ test("настройка переезжает на чистую базу без 
     .post("/api/promotions")
     .send({ name: "Утро дешевле", discount_percent: 25, ...ALL_DAY });
   const client = await admin.post("/api/clients").send({ name: "Постоянный гость" });
+  await admin
+    .post("/api/devices")
+    .send({ name: "Вытяжка", work_minutes: 15, rest_minutes: 30, kind: "tasmota", host: "10.0.0.9" });
   await admin.post(`/api/tables/${table.id}/open`).send({ tariff_id: tariff.id });
   await admin.post(`/api/tables/${table.id}/close`).send({});
 
@@ -43,6 +46,7 @@ test("настройка переезжает на чистую базу без 
   assert.ok(config.tariffs.some((t) => t.name === "Дневной"));
   assert.ok(config.promotions.some((p) => p.name === "Утро дешевле"));
   assert.ok(config.tables.some((t) => t.name === "Стол у окна"));
+  assert.deepEqual(config.devices, [{ name: "Вытяжка", work_minutes: 15, rest_minutes: 30 }]);
 
   // Истории и людей в файле быть не должно.
   const raw = JSON.stringify(config);
@@ -76,6 +80,13 @@ test("настройка переезжает на чистую базу без 
 
   const tables = await admin2.get("/api/tables");
   assert.ok(tables.body.some((t) => t.name === "Стол у окна"));
+
+  // Устройство переехало с циклом, но без реле и выключенным.
+  const devices = await admin2.get("/api/devices");
+  assert.equal(devices.body.length, 1);
+  assert.equal(devices.body[0].work_minutes, 15);
+  assert.equal(devices.body[0].light_kind, null);
+  assert.equal(devices.body[0].cycle_on, false);
 
   // История нового клуба пуста — она и не должна переезжать.
   const history = await admin2.get("/api/history");
