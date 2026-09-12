@@ -19,6 +19,7 @@ const state = {
   tariffChoice: new Map(), // table_id -> выбранный tariff_id в селекте
   clientDraft: new Map(),  // table_id -> набранный текст в поле клиента
   devices: [],         // устройства Tuya для вкладки «Настройки»
+  features: {},        // какие новшества включены клубу (панель сети решает)
   hallDevices: [],     // кондиционер, вытяжка, приток — вкладка «Устройства»
   devicesFetchedAt: 0, // когда их ответ пришёл: от него идёт отсчёт на плашках
   user: null,          // текущий сотрудник {id, name, role}
@@ -975,6 +976,7 @@ function renderMap() {
     div.style.top = `${el.y * CELL}px`;
     div.style.width = `${el.w * CELL}px`;
     div.style.height = `${el.h * CELL}px`;
+    if (el.type === "device" && state.features.devices === false) return;
     if (el.type === "device") {
       const device = state.hallDevices.find((d) => d.id === el.device_id);
       const meta = DEVICE_TYPES[device?.type] ?? DEVICE_TYPES.exhaust;
@@ -1753,6 +1755,7 @@ async function refreshDashboard() {
  */
 function renderDevicesStrip(devices) {
   const strip = document.getElementById("devices-strip");
+  if (state.features.devices === false) return; // клубу это новшество выключено
   strip.replaceChildren(
     ...devices.map((device) => {
       const meta = DEVICE_TYPES[device.type] ?? DEVICE_TYPES.exhaust;
@@ -7565,7 +7568,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.user = me.user;
     state.shift = me.shift;
     state.permissions = me.permissions ?? {};
+    state.features = me.features ?? {};
     state.me = me;
+    // Новшества, которые клубу выключены из панели сети: разделы прячем,
+    // анимации глушим. Код общий — версия у каждого клуба своя.
+    for (const node of document.querySelectorAll("[data-feature]")) {
+      if (state.features[node.dataset.feature] === false) node.hidden = true;
+    }
+    document.documentElement.classList.toggle("no-motion", state.features.motion === false);
     applyBrand({
       club_name: me.club_name,
       club_logo: me.club_logo,
@@ -7593,7 +7603,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     toggleShift();
   }
   for (const el of document.querySelectorAll("[data-permission]")) {
-    el.hidden = !state.permissions[el.dataset.permission];
+    el.hidden = !state.permissions[el.dataset.permission] ||
+      (el.dataset.feature && state.features[el.dataset.feature] === false);
   }
   // Матрицу прав, роли «Владелец»/«Разработчик» и загрузку базы видит
   // владелец/разработчик — жёстко, а не через саму матрицу. Признак даёт
@@ -7612,6 +7623,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
   applyVisibility("[data-owner-only]", state.ownerLevel);
   applyVisibility("[data-developer-only]", state.user?.role === "developer");
+  for (const node of document.querySelectorAll("[data-developer-only][data-feature]")) {
+    if (state.features[node.dataset.feature] === false) node.hidden = true;
+  }
   // Роль «Управляющий» — только для настоящего владельца: на первом
   // запуске администратор создаёт владельца, а не почти-владельца.
   applyVisibility("[data-strict-owner]", isRealOwner);

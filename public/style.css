@@ -308,6 +308,12 @@ main { padding: 28px 24px 48px; max-width: 1100px; margin: 0 auto; }
 .dot-expired { background: var(--red); }
 .dot-booked { background: var(--orange-text); }
 
+/* Клубу выключили анимации из панели сети — глушим всё движение разом. */
+html.no-motion *, html.no-motion *::before, html.no-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
 /* --- Живые иконки устройств --- */
 .dev-ic {
   width: 1.08em;

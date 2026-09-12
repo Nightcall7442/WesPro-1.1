@@ -9,6 +9,7 @@ import {
   TUYA_API_HOST,
 } from "../config.js";
 import { ConflictError } from "./errors.js";
+import { FEATURES, featureSettingKey } from "./features.js";
 
 const DEFAULTS = {
   lighting_driver: LIGHTING_DRIVER,
@@ -48,6 +49,9 @@ const DEFAULTS = {
   warn_sound: "1",
   plan_cols: "40", // сетка плана зала: ширина в клетках
   plan_rows: "25", // сетка плана зала: высота в клетках
+  // Новшества по клубу (см. features.js): «1» — включено. По умолчанию
+  // всё включено; выключает панель сети, раскатывая обновление по клубам.
+  ...Object.fromEntries(FEATURES.map((f) => [featureSettingKey(f.key), "1"])),
 };
 
 const ALLOWED_KEYS = Object.keys(DEFAULTS);
@@ -112,6 +116,9 @@ export function saveSettings(db, patch) {
     if (key === "warn_sound" && !["0", "1"].includes(value)) {
       throw new ConflictError("Звук предупреждения: 0 (выкл) или 1 (вкл)");
     }
+    if (key.startsWith("feature_") && !["0", "1"].includes(value)) {
+      throw new ConflictError("Новшество: 0 (выключено) или 1 (включено)");
+    }
     if (key === "tz_offset_minutes") validateIntInRange(key, value, -720, 840);
     if (key === "plan_cols") validateIntInRange(key, value, 10, 120);
     if (key === "plan_rows") validateIntInRange(key, value, 8, 80);
@@ -132,6 +139,31 @@ export function saveSettings(db, patch) {
     upsert.run(key, value);
   }
   return getSettings(db);
+}
+
+/**
+ * Какие новшества включены этому клубу: {devices: true, motion: false, …}.
+ * @param {import("node:sqlite").DatabaseSync} db
+ */
+export function enabledFeatures(db) {
+  const settings = getSettings(db);
+  return Object.fromEntries(
+    FEATURES.map((f) => [f.key, settings[featureSettingKey(f.key)] !== "0"])
+  );
+}
+
+/**
+ * Включает или выключает новшества клубу: {devices: false}.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {Record<string, boolean>} patch
+ */
+export function setFeatures(db, patch) {
+  const settingsPatch = {};
+  for (const feature of FEATURES) {
+    if (feature.key in patch) settingsPatch[featureSettingKey(feature.key)] = patch[feature.key] ? "1" : "0";
+  }
+  saveSettings(db, settingsPatch);
+  return enabledFeatures(db);
 }
 
 /**

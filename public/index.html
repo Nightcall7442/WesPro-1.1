@@ -40,7 +40,7 @@
       <button class="tab nav-item" data-tab="cashdesk" title="Касса">
         <span class="nav-icon"><i class="ic ic-card"></i></span><span class="nav-label">Касса</span>
       </button>
-      <button class="tab nav-item" data-tab="devices" title="Устройства">
+      <button class="tab nav-item" data-tab="devices" data-feature="devices" title="Устройства">
         <span class="nav-icon"><i class="ic ic-bulb"></i></span><span class="nav-label">Устройства</span>
       </button>
       <button class="tab nav-item" data-tab="journal" data-permission="view_journal" hidden title="Журнал">
@@ -99,7 +99,7 @@
         <!-- Устройства зала одной строкой: по иконке на устройство, цвет —
              состояние, клик — управление. Подробности — в разделе
              «Устройства». -->
-        <div id="devices-strip" class="devices-strip" hidden></div>
+        <div id="devices-strip" class="devices-strip" data-feature="devices" hidden></div>
         <span id="club-load" class="club-load"></span>
       </div>
       <div id="map-wrap" class="map-wrap" hidden>
@@ -116,9 +116,9 @@
           <button class="pal-tool" data-tool="armchair"><i class="ic ic-armchair"></i>Кресло</button>
           <button class="pal-tool" data-tool="deco_table"><i class="ic ic-deco_table"></i>Стол (мебель)</button>
           <button class="pal-tool" data-tool="tv"><i class="ic ic-tv"></i>Телевизор</button>
-          <div class="pal-sep">Устройства</div>
-          <div id="pal-devices"></div>
-          <p class="hint" id="pal-devices-hint">
+          <div class="pal-sep" data-feature="devices">Устройства</div>
+          <div id="pal-devices" data-feature="devices"></div>
+          <p class="hint" id="pal-devices-hint" data-feature="devices">
             Кондиционер, вытяжка, приток, решётки — по комнатам: выберите
             устройство и кликните на план. Стоящие на плане в списке не
             показываются; убрать с плана — ластиком (само устройство
@@ -793,7 +793,7 @@
         </p>
       </div>
 
-      <div class="settings-card">
+      <div class="settings-card" data-feature="board">
         <h3>Экран для гостей</h3>
         <p class="hint">
           Отдельная страница для телевизора в зале: свободные столы,
@@ -909,7 +909,7 @@
         </table>
       </div>
 
-      <div class="settings-card" data-developer-only hidden>
+      <div class="settings-card" data-developer-only data-feature="devices" hidden>
         <h3>Устройства зала: настройка</h3>
         <p class="hint">
           Кондиционер, вытяжка, приток, решётки каналов. Устройство сидит

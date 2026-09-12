@@ -86,7 +86,7 @@ import {
   setUserPermissionOverrides,
   userCan,
 } from "../services/permissions.js";
-import { getClubSettings, getSettings, saveSettings } from "../services/settings.js";
+import { enabledFeatures, getClubSettings, getSettings, saveSettings } from "../services/settings.js";
 import {
   closeSession,
   computeCheck,
@@ -297,6 +297,8 @@ export function createApiRouter(db) {
       warn_sound: club.warn_sound,
       receipt_width: club.receipt_width,
       permissions: permissionsForUser(db, req.user),
+      // Что из новшеств включено этому клубу — интерфейс прячет остальное.
+      features: enabledFeatures(db),
       // Кому показывать владельческие блоки: редактор прав, роли
       // «Владелец»/«Разработчик», загрузку базы из копии.
       owner_level: ownerLevelAllowed(db, req.user),

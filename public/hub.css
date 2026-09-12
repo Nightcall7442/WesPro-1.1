@@ -167,6 +167,14 @@ body.hub { min-height: 100vh; }
 .ev.new { animation: ev-flash 1.8s ease-out; border-radius: 8px; margin: 0 -8px; padding: 6px 8px; }
 @keyframes ev-flash { from { background: rgba(28, 122, 79, 0.28); } to { background: transparent; } }
 
+/* Новшества: строка с переключателем. */
+.feature-list { display: flex; flex-direction: column; gap: 8px; }
+.feature-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--hairline); }
+.feature-row.on { border-color: rgba(28, 122, 79, 0.45); }
+.feature-row .hint { margin: 2px 0 0; }
+.feature-row button.mini.on { background: var(--green-text); color: #fff; border-color: transparent; }
+#network-features { display: flex; flex-direction: column; gap: 8px; }
+
 /* Страница клуба. */
 .club-page-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .club-page-title h2 { margin: 0; font-size: 1.3rem; font-weight: 800; letter-spacing: -0.02em; }

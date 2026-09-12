@@ -561,6 +561,12 @@ function buildClubTile(club) {
   }
   tags.append(subscriptionTag(club));
   if (club.plan_name) tags.append(el("span", "club-tag", club.plan_name));
+  if (live?.features) {
+    const off = Object.values(live.features).filter((v) => !v).length;
+    const tag = el("span", `club-tag ${off ? "warn" : "ok"}`, off ? `выключено новшеств: ${off}` : "все новшества");
+    tag.title = "Обновления клуба — на его странице";
+    tags.append(tag);
+  }
   if (club.app_version) tags.append(el("span", "club-tag", club.app_version));
   tile.append(tags);
 
@@ -683,6 +689,7 @@ function openClubForm(club = null) {
 const CLUB_TABS = [
   ["now", "Сейчас", true],
   ["subscription", "Подписка и оплаты", false],
+  ["updates", "Обновления", true],
   ["staff", "Сотрудники", true],
   ["journal", "Журнал клуба", true],
   ["danger", "Копия и опасное", false],
@@ -724,7 +731,7 @@ async function loadClubPage() {
   // Программа клуба под рукой? В сети — да, если клуб её открывал.
   const program = await api(`/hub/api/clubs/${id}/program/live`).catch(() => null);
   state.clubProgram = program;
-  if (!program && ["now", "staff", "journal"].includes(state.club.tab)) {
+  if (!program && ["now", "staff", "journal", "updates"].includes(state.club.tab)) {
     state.club.tab = "subscription";
   }
 
@@ -769,6 +776,7 @@ async function loadClubPage() {
   switch (state.club.tab) {
     case "now": body.append(buildNowTab(program)); break;
     case "staff": body.append(await buildStaffTab(id)); break;
+    case "updates": body.append(await buildUpdatesTab(id)); break;
     case "journal": body.append(await buildJournalTab(id)); break;
     case "danger": body.append(buildDangerTab(club, program)); break;
     default: body.append(await buildSubscriptionTab(club));
@@ -857,6 +865,51 @@ function buildNowTab(live) {
     wrap.append(devPanel);
   }
   return wrap;
+}
+
+/** Новшества клуба: код общий, а что видит клуб — решает эта вкладка. */
+async function buildUpdatesTab(clubId) {
+  const { features, enabled } = await api(`/hub/api/clubs/${clubId}/program/features`);
+  const panel = el("div", "hub-panel");
+  const onCount = features.filter((f) => enabled[f.key]).length;
+  panel.append(
+    el("h2", null, `Обновления клуба`),
+    el(
+      "p",
+      "hint",
+      "Программа у всех клубов одна, но новшества включаются каждому клубу отдельно: " +
+        "пилотному включили — остальные сидят на прежнем, пока не проверили. " +
+        `Сейчас включено ${onCount} из ${features.length}.`
+    )
+  );
+  const save = guard(async (patch, text) => {
+    await api(`/hub/api/clubs/${clubId}/program/features`, { method: "PUT", body: JSON.stringify(patch) });
+    showToast(text, true);
+    await loadClubPage();
+  });
+  const list = el("div", "feature-list");
+  for (const feature of features) {
+    const row = el("div", `feature-row${enabled[feature.key] ? " on" : ""}`);
+    const text = el("div");
+    text.append(el("b", null, feature.label), el("div", "hint", `${feature.hint} С версии ${feature.since}.`));
+    const toggle = button(
+      enabled[feature.key] ? "Включено" : "Выключено",
+      `mini${enabled[feature.key] ? " on" : ""}`,
+      () => save({ [feature.key]: !enabled[feature.key] }, `${feature.label}: ${enabled[feature.key] ? "выключено" : "включено"}`)
+    );
+    row.append(text, toggle);
+    list.append(row);
+  }
+  panel.append(list);
+  const all = Object.fromEntries(features.map((f) => [f.key, true]));
+  const none = Object.fromEntries(features.map((f) => [f.key, false]));
+  panel.append(
+    actionsRow(
+      button("Обновить до текущей версии", "primary", () => save(all, "Клубу включены все новшества")),
+      button("Откатить всё новое", "mini danger", () => save(none, "Новшества выключены — клуб на прежней версии"))
+    )
+  );
+  return panel;
 }
 
 async function buildStaffTab(clubId) {
@@ -1392,7 +1445,40 @@ const SETTING_LABELS = {
   expiry_warning_days: "Предупреждать об окончании за, дней",
 };
 
+/** Новшества по всей сети: у скольких включено, включить/выключить всем. */
+async function renderNetworkFeatures() {
+  const host = document.getElementById("network-features");
+  const data = await api("/hub/api/features").catch(() => null);
+  host.replaceChildren();
+  if (!data || !data.clubs_total) {
+    host.append(el("p", "hub-empty", "Клубов с программой пока нет — включать новшества некому."));
+    return;
+  }
+  for (const feature of data.features) {
+    const row = el("div", "feature-row");
+    const text = el("div");
+    text.append(
+      el("b", null, feature.label),
+      el("div", "hint", `${feature.hint} Включено у ${feature.enabled_count} из ${data.clubs_total} клубов.`)
+    );
+    const set = (enabled) =>
+      guard(async () => {
+        const result = await api(`/hub/api/features/${feature.key}`, {
+          method: "PUT",
+          body: JSON.stringify({ enabled }),
+        });
+        showToast(`${feature.label}: ${enabled ? "включено" : "выключено"} у ${result.updated} клубов`, true);
+        await renderNetworkFeatures();
+      });
+    const actions = el("div", "row-actions");
+    actions.append(button("Включить всем", "mini", set(true)), button("Выключить всем", "mini danger", set(false)));
+    row.append(text, actions);
+    host.append(row);
+  }
+}
+
 async function loadSettings() {
+  await renderNetworkFeatures();
   const data = await api("/hub/api/settings");
   state.settings = data.settings;
   const form = document.getElementById("settings-form");

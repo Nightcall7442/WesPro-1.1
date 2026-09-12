@@ -13,7 +13,8 @@ import fs from "node:fs";
 import { backupFileName, exportBackupFile } from "../services/backup.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../services/errors.js";
 import { listJournal } from "../services/journal.js";
-import { getClubSettings } from "../services/settings.js";
+import { FEATURES } from "../services/features.js";
+import { enabledFeatures, getClubSettings, setFeatures } from "../services/settings.js";
 import { closeShift } from "../services/shifts.js";
 import { listUsers, updateUser } from "../services/users.js";
 import { clubLiveDetail } from "./live.js";
@@ -317,6 +318,28 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
     res.json(listJournal(req.clubDb, 100));
   });
 
+  // Новшества клуба: что включено. Так обновление раскатывается по
+  // клубам по одному — код общий, а видит клуб только то, что ему
+  // включили.
+  program.get("/features", (req, res) => {
+    res.json({ features: FEATURES, enabled: enabledFeatures(req.clubDb) });
+  });
+
+  program.put("/features", (req, res) => {
+    const patch = req.body ?? {};
+    const enabled = setFeatures(req.clubDb, patch);
+    const changed = FEATURES.filter((f) => f.key in patch)
+      .map((f) => `${f.label}: ${patch[f.key] ? "вкл" : "выкл"}`)
+      .join(", ");
+    logHubEvent(
+      hubDb,
+      HubEvent.CLUB_UPDATED,
+      `«${req.club.name}»: обновления — ${changed || "без изменений"} — ${req.hubUser.name}`,
+      req.club.id
+    );
+    res.json({ features: FEATURES, enabled });
+  });
+
   // Смена, которую забыли закрыть: закрывается от имени того, кто её открыл.
   program.post("/shift/close", (req, res) => {
     const open = req.clubDb
@@ -363,6 +386,41 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
   });
 
   router.use("/api/clubs/:id/program", program);
+
+  // Новшества по всей сети: у скольких клубов включено, включить или
+  // выключить всем разом. Клубы без базы не считаются — им нечего включать.
+  const clubsWithDb = () =>
+    tenantDb
+      ? listClubs(hubDb, { status: "all" })
+          .filter((c) => c.status !== "archived")
+          .map((club) => ({ club, db: tenantDb(club) }))
+          .filter((x) => x.db)
+      : [];
+
+  router.get("/api/features", (req, res) => {
+    const rows = clubsWithDb();
+    res.json({
+      clubs_total: rows.length,
+      features: FEATURES.map((f) => ({
+        ...f,
+        enabled_count: rows.filter(({ db }) => enabledFeatures(db)[f.key]).length,
+      })),
+    });
+  });
+
+  router.put("/api/features/:key", (req, res) => {
+    const feature = FEATURES.find((f) => f.key === req.params.key);
+    if (!feature) return res.status(404).json({ detail: "Такого новшества нет" });
+    const enabled = Boolean(req.body?.enabled);
+    const rows = clubsWithDb();
+    for (const { db } of rows) setFeatures(db, { [feature.key]: enabled });
+    logHubEvent(
+      hubDb,
+      HubEvent.CLUB_UPDATED,
+      `Всем клубам (${rows.length}): «${feature.label}» ${enabled ? "включено" : "выключено"} — ${req.hubUser.name}`
+    );
+    res.json({ updated: rows.length, enabled });
+  });
 
   // --- Тарифы сервиса ------------------------------------------------------
 

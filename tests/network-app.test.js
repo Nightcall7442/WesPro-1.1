@@ -493,3 +493,42 @@ test("панель сети управляет программой клуба: 
   // Клуб без базы и чужой номер — 404, а не падение.
   assert.equal((await boss.get("/hub/api/clubs/999/program/live")).status, 404);
 });
+
+test("новшества включаются каждому клубу отдельно, а можно и всем разом", async (t) => {
+  const { app, hubDb } = makeNetwork(t);
+  const { createHubUser } = await import("../src/hub/auth.js");
+  createHubUser(hubDb, { login: "boss", name: "Владелец сети", password: "boss12345" });
+  const tetris = await registerAndOpen(app, { name: "Тетрис", email: "tetris@example.com" });
+  const nine = await registerAndOpen(app, { name: "Девятка", email: "nine@example.com" });
+
+  // По умолчанию всё включено.
+  const me = await tetris.get("/api/auth/me");
+  assert.deepEqual(me.body.features, { devices: true, motion: true, board: true });
+  assert.equal((await tetris.get("/board")).status, 200);
+
+  const boss = supertest.agent(app);
+  await boss.post("/hub/api/auth/login").send({ login: "boss", password: "boss12345" });
+  const clubs = (await boss.get("/hub/api/clubs?status=all")).body;
+  const tetrisId = clubs.find((c) => c.name === "Тетрис").id;
+
+  // Одному клубу выключили устройства и экран — второй не заметил.
+  const off = await boss
+    .put(`/hub/api/clubs/${tetrisId}/program/features`)
+    .send({ devices: false, board: false });
+  assert.equal(off.status, 200);
+  assert.deepEqual(off.body.enabled, { devices: false, motion: true, board: false });
+  assert.deepEqual((await tetris.get("/api/auth/me")).body.features, { devices: false, motion: true, board: false });
+  assert.equal((await tetris.get("/board")).status, 404);
+  assert.deepEqual((await nine.get("/api/auth/me")).body.features, { devices: true, motion: true, board: true });
+
+  // Сводка по сети: у скольких включено.
+  const summary = (await boss.get("/hub/api/features")).body;
+  assert.equal(summary.clubs_total, 2);
+  assert.equal(summary.features.find((f) => f.key === "devices").enabled_count, 1);
+
+  // Всем разом.
+  const all = await boss.put("/hub/api/features/motion").send({ enabled: false });
+  assert.equal(all.body.updated, 2);
+  assert.equal((await nine.get("/api/auth/me")).body.features.motion, false);
+  assert.equal((await boss.put("/hub/api/features/nope").send({ enabled: true })).status, 404);
+});

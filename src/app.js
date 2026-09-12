@@ -8,6 +8,7 @@ import { landingAtRoot, PUBLIC_DIR } from "./config.js";
 import { mountHubAndAccount } from "./hub/mount.js";
 import { createApiRouter } from "./routes/api.js";
 import { getUserByToken, tokenFromCookieHeader } from "./services/auth.js";
+import { enabledFeatures } from "./services/settings.js";
 import { logServerError } from "./services/diagnostics.js";
 import { requestLogger } from "./services/request-log.js";
 import {
@@ -71,6 +72,10 @@ export function createApp(db, hubDb = null) {
   // Экран для гостей: телевизор в зале со свободными столами и ценами.
   // Открывается без входа — на нём нет ни денег, ни имён клиентов.
   app.get("/board", (req, res) => {
+    // Новшество «экран для гостей» клубу могли выключить из панели сети.
+    if (!enabledFeatures(db).board) {
+      return res.status(404).send("Экран для гостей в этом клубе выключен.");
+    }
     res.sendFile(path.join(PUBLIC_DIR, "board.html"));
   });
 
