@@ -83,6 +83,106 @@ body.hub { min-height: 100vh; }
 .club-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
 .club-none { font-size: 0.86rem; color: var(--muted); }
 
+/* --- Сводка: живые плитки и панели --- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.kpi {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  animation: kpi-rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.kpi:nth-child(2) { animation-delay: 40ms; } .kpi:nth-child(3) { animation-delay: 80ms; }
+.kpi:nth-child(4) { animation-delay: 120ms; } .kpi:nth-child(5) { animation-delay: 160ms; }
+.kpi:nth-child(6) { animation-delay: 200ms; } .kpi:nth-child(7) { animation-delay: 240ms; }
+.kpi:nth-child(8) { animation-delay: 280ms; } .kpi:nth-child(9) { animation-delay: 320ms; }
+@keyframes kpi-rise { from { opacity: 0.35; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.kpi b { display: block; font-size: 1.45rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi small { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+.kpi .delta { display: inline-block; margin-top: 6px; font-size: 0.74rem; font-weight: 700; padding: 2px 7px; border-radius: 999px; }
+.delta.up { color: var(--green-text); background: rgba(28, 122, 79, 0.12); }
+.delta.down { color: var(--red); background: rgba(207, 74, 65, 0.12); }
+.delta.flat { color: var(--muted); background: rgba(var(--ink), 0.07); }
+.kpi.bad b { color: var(--red); } .kpi.warn b { color: var(--orange-text); }
+.hub-panel h2 small { font-weight: 500; color: var(--muted); font-size: 0.8rem; margin-left: 6px; }
+.badge { margin-left: 8px; font-size: 0.74rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(207, 74, 65, 0.12); color: var(--red); vertical-align: middle; }
+.badge:empty { display: none; }
+.hub-split-live { grid-template-columns: 1.4fr 1fr; }
+.hub-split-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .hub-split-live, .hub-split-3 { grid-template-columns: 1fr; } }
+
+/* График дня. */
+.chart { position: relative; height: 190px; }
+.chart svg { width: 100%; height: 100%; overflow: visible; }
+.chart .bar { fill: rgba(var(--accent-rgb), 0.75); transform-origin: bottom; transform: scaleY(0); animation: bar-grow 700ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+.chart .bar.now { fill: var(--green-text); }
+.chart .bar.future { fill: rgba(var(--ink), 0.08); }
+@keyframes bar-grow { to { transform: scaleY(1); } }
+.chart .yday { fill: none; stroke: var(--orange-text); stroke-width: 2; stroke-dasharray: 1200; stroke-dashoffset: 1200; animation: line-draw 1200ms ease-out 300ms forwards; }
+@keyframes line-draw { to { stroke-dashoffset: 0; } }
+.chart .lbl { font-size: 10.5px; fill: var(--muted); }
+.chart .grid { stroke: var(--hairline); stroke-width: 1; }
+.legend { display: flex; gap: 14px; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.legend .lg-today { background: rgba(var(--accent-rgb), 0.75); }
+.legend .lg-now { background: var(--green-text); }
+.legend .lg-future { background: rgba(var(--ink), 0.12); }
+.legend .lg-yday { background: var(--orange-text); height: 3px; vertical-align: 2px; }
+
+/* Клубы сейчас. */
+.club-row { display: grid; grid-template-columns: 14px 1fr 90px 130px; gap: 10px; align-items: center; font-size: 0.88rem; padding: 7px 0; border-bottom: 0.5px solid var(--hairline); cursor: pointer; }
+.club-row:last-child { border-bottom: 0; }
+.club-row:hover b { text-decoration: underline; }
+.club-row .dot { margin: 0; width: 8px; height: 8px; }
+.club-row .dot.on { background: var(--green-text); box-shadow: none; }
+.club-row .dot.off { background: var(--red); opacity: 1; animation: link-blink 1.6s ease-in-out infinite; }
+.club-row .dot.grey { background: rgba(var(--ink), 0.25); opacity: 1; }
+.occ { height: 6px; border-radius: 3px; background: rgba(var(--ink), 0.12); overflow: hidden; }
+.occ b { display: block; height: 100%; background: var(--blue); width: 0; animation: occ-fill 800ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+@keyframes occ-fill { to { width: var(--w); } }
+.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.num.bad { color: var(--red); }
+.muted { color: var(--muted); }
+
+/* Внимание: въезжает слева. */
+.attention-item { animation: att-slide 360ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes att-slide { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+
+/* Подписки: кольцо статусов и ближайшие оплаты. */
+.donut { display: flex; gap: 16px; align-items: center; }
+.donut svg { width: 110px; height: 110px; transform: rotate(-90deg); flex: none; }
+.donut circle { fill: none; stroke-width: 12; transform-origin: 55px 55px; stroke-dashoffset: 289; animation: donut-seg 900ms ease-out forwards; }
+@keyframes donut-seg { to { stroke-dashoffset: var(--off); } }
+.donut .lg { font-size: 0.82rem; display: flex; flex-direction: column; gap: 4px; }
+.donut .lg i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.pay-row { display: flex; justify-content: space-between; gap: 10px; font-size: 0.86rem; padding: 6px 0; border-bottom: 0.5px solid var(--hairline); cursor: pointer; }
+.pay-row:last-child { border-bottom: 0; }
+#upcoming { margin-top: 10px; }
+
+/* Лента событий: новое — сверху и с зелёной вспышкой. */
+.ev { display: flex; gap: 10px; font-size: 0.86rem; padding: 6px 0; border-bottom: 0.5px solid var(--hairline); cursor: pointer; }
+.ev:last-child { border-bottom: 0; }
+.ev .when { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; width: 44px; font-size: 0.8rem; flex: none; }
+.ev.new { animation: ev-flash 1.8s ease-out; border-radius: 8px; margin: 0 -8px; padding: 6px 8px; }
+@keyframes ev-flash { from { background: rgba(28, 122, 79, 0.28); } to { background: transparent; } }
+
+/* Страница клуба. */
+.club-page-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.club-page-title h2 { margin: 0; font-size: 1.3rem; font-weight: 800; letter-spacing: -0.02em; }
+.club-page-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+a.btn-link { text-decoration: none; }
+a.btn-link.primary { border: 0; border-radius: 12px; padding: 10px 18px; background: var(--blue); color: var(--accent-fg); font-weight: 700; font-size: 0.9rem; }
+a.btn-link.mini { border: 0.5px solid var(--hairline); border-radius: 10px; padding: 7px 14px; background: rgba(var(--ink), 0.06); color: var(--text); font-weight: 600; font-size: 0.86rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kpi, .attention-item, .ev.new { animation: none; }
+  .chart .bar { animation: none; transform: none; }
+  .chart .yday { animation: none; stroke-dashoffset: 0; }
+  .occ b { animation: none; width: var(--w); }
+  .donut circle { animation: none; stroke-dashoffset: var(--off); }
+}
+
 /* Значки статуса подписки — под светлую тему тоже. */
 html[data-theme="light"] .pill-trial { color: #2f5fa8; }
 html[data-theme="light"] .pill-overdue { color: #a86c12; }

@@ -437,3 +437,59 @@ test("панель сети видит, что происходит в клуб�
   assert.equal(quiet.tables_busy, 0);
   assert.equal(quiet.shift, null);
 });
+
+test("панель сети управляет программой клуба: сотрудники, журнал, копия, вход", async (t) => {
+  const { app, hubDb } = makeNetwork(t);
+  const { createHubUser } = await import("../src/hub/auth.js");
+  createHubUser(hubDb, { login: "boss", name: "Владелец сети", password: "boss12345" });
+  const owner = await registerAndOpen(app, { name: "Тетрис", email: "tetris@example.com" });
+  await owner.post("/api/shifts/open").send({});
+
+  const boss = supertest.agent(app);
+  await boss.post("/hub/api/auth/login").send({ login: "boss", password: "boss12345" });
+  const club = (await boss.get("/hub/api/clubs?status=all")).body.find((c) => c.name === "Тетрис");
+  const base = `/hub/api/clubs/${club.id}/program`;
+
+  const live = await boss.get(`${base}/live`);
+  assert.equal(live.status, 200);
+  assert.ok(Array.isArray(live.body.tables));
+  assert.equal(live.body.shift.cashier, "Иван Иванов");
+  assert.equal(live.body.hours_today.length, 24);
+
+  const users = (await boss.get(`${base}/users`)).body;
+  const ownerUser = users.find((u) => u.login === "tetris@example.com");
+  assert.ok(ownerUser, "владелец клуба виден панели");
+
+  // Новый пароль владельцу — и старый больше не подходит.
+  const reset = await boss.put(`${base}/users/${ownerUser.id}`).send({ password: "noviy-parol-1" });
+  assert.equal(reset.status, 200);
+  const stale = await supertest.agent(app).post("/api/auth/login").send({ login: "tetris@example.com", password: PASSWORD });
+  assert.equal(stale.status, 401);
+  const fresh = await supertest.agent(app).post("/api/auth/login").send({ login: "tetris@example.com", password: "noviy-parol-1" });
+  assert.equal(fresh.status, 200);
+
+  // Забытая смена закрывается из панели.
+  const closed = await boss.post(`${base}/shift/close`);
+  assert.equal(closed.status, 200);
+  assert.equal((await boss.post(`${base}/shift/close`)).status, 409);
+
+  const journal = await boss.get(`${base}/journal`);
+  assert.equal(journal.status, 200);
+  assert.ok(journal.body.some((e) => e.event === "shift_closed"));
+
+  const backup = await boss.get(`${base}/backup`);
+  assert.equal(backup.status, 200);
+  assert.match(backup.headers["content-disposition"], /billiards-backup-/);
+
+  // Вход в программу клуба одним кликом — владельцем клуба, с записью в журнал сети.
+  const open = await boss.get(`${base}/open`).redirects(0);
+  assert.equal(open.status, 302);
+  const me = await boss.get("/api/auth/me");
+  assert.equal(me.status, 200);
+  assert.equal(me.body.user.login, "tetris@example.com");
+  const hubJournal = (await boss.get("/hub/api/journal")).body.entries;
+  assert.ok(hubJournal.some((e) => e.event === "support_login" && /из панели сети/.test(e.message)));
+
+  // Клуб без базы и чужой номер — 404, а не падение.
+  assert.equal((await boss.get("/hub/api/clubs/999/program/live")).status, 404);
+});

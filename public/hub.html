@@ -60,19 +60,60 @@
   </header>
 
   <main class="hub-main">
-    <!-- Сводка -->
+    <!-- Сводка: живые цифры сети, день по часам, кто требует внимания,
+         подписки и лента событий. Числа набегают, столбцы растут. -->
     <section class="hub-page" data-page="overview">
-      <div class="hub-cards" id="stat-cards"></div>
-      <div class="hub-split">
+      <div class="kpis" id="stat-cards"></div>
+      <div class="hub-split hub-split-live" id="live-panels" hidden>
         <div class="hub-panel">
-          <h2>Требует внимания</h2>
+          <h2>Сеть сегодня <small>выручка по часам, все клубы</small></h2>
+          <div class="chart" id="day-chart"></div>
+          <div class="legend">
+            <span><i class="lg-today"></i>сегодня</span>
+            <span><i class="lg-now"></i>текущий час</span>
+            <span><i class="lg-future"></i>вчера в этот час</span>
+            <span><i class="lg-yday"></i>вчера</span>
+          </div>
+        </div>
+        <div class="hub-panel">
+          <h2>Клубы сейчас <small>занятость · выручка за день</small></h2>
+          <div id="clubs-now"></div>
+        </div>
+      </div>
+      <div class="hub-split hub-split-3">
+        <div class="hub-panel">
+          <h2>Требует внимания <span class="badge" id="attention-count"></span></h2>
           <div id="attention-list" class="attention-list"></div>
         </div>
         <div class="hub-panel">
-          <h2>Рост сети</h2>
-          <table class="hub-table" id="growth-table"></table>
+          <h2>Подписки <small>статусы и ближайшие оплаты</small></h2>
+          <div id="subs-donut"></div>
+          <div id="upcoming"></div>
+        </div>
+        <div class="hub-panel">
+          <h2>Последние события <small>журнал сети</small></h2>
+          <div id="events"></div>
         </div>
       </div>
+      <div class="hub-panel">
+        <h2>Рост сети</h2>
+        <table class="hub-table" id="growth-table"></table>
+      </div>
+    </section>
+
+    <!-- Страница клуба: всё про один клуб, вкладками. -->
+    <section class="hub-page" data-page="club" hidden>
+      <div class="club-page-head">
+        <button class="mini" id="club-back">← Клубы</button>
+        <div class="club-page-title">
+          <h2 id="club-page-name"></h2>
+          <div class="club-city" id="club-page-sub"></div>
+        </div>
+        <span class="club-link" id="club-page-link"></span>
+        <div class="club-page-actions" id="club-page-actions"></div>
+      </div>
+      <div class="chips" id="club-tabs"></div>
+      <div id="club-tab-body"></div>
     </section>
 
     <!-- Клубы: плитки. На каждой — что в клубе прямо сейчас (из его

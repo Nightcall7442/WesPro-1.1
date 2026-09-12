@@ -17,11 +17,17 @@ const state = {
 const TAB_TITLES = {
   overview: "Сводка",
   clubs: "Клубы",
+  club: "",
   plans: "Тарифы сервиса",
   messages: "Сообщения клубам",
   journal: "Журнал сети",
   settings: "Настройки панели",
 };
+
+const RELAY_LABELS = { tuya: "Tuya / MOES", tasmota: "Tasmota", shelly: "Shelly", url: "Своё устройство" };
+function relayKindLabel(kind) {
+  return RELAY_LABELS[kind] ?? kind ?? "—";
+}
 
 // --- Мелкие помощники -------------------------------------------------------
 
@@ -180,64 +186,271 @@ function statusPill(club) {
 
 // --- Сводка -----------------------------------------------------------------
 
+/** Число набегает до значения за ~0,9 с — видно, что сводка живая. */
+function animateNumber(node, target, format) {
+  const from = Number(node.dataset.value ?? 0);
+  node.dataset.value = String(target);
+  if (from === target || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    node.textContent = format(target);
+    return;
+  }
+  const started = performance.now();
+  const step = (now) => {
+    const p = Math.min(1, (now - started) / 900);
+    const eased = 1 - Math.pow(1 - p, 3);
+    node.textContent = format(Math.round(from + (target - from) * eased));
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/** Короткие деньги для плиток: «3,96 млн сум», «640 тыс сум». */
+function moneyShort(value) {
+  const num = Number(value) || 0;
+  if (Math.abs(num) >= 1e6) return `${(num / 1e6).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} млн ${cur()}`;
+  if (Math.abs(num) >= 1e4) return `${Math.round(num / 1e3).toLocaleString("ru-RU")} тыс ${cur()}`;
+  return money(num);
+}
+
+/** «2 ч», «40 мин», «3 дн.» — сколько прошло с момента. */
+function since(iso) {
+  if (!iso) return "";
+  const minutes = Math.max(0, (Date.now() - Date.parse(iso)) / 60000);
+  if (minutes < 60) return `${Math.round(minutes)} мин`;
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} ч`;
+  return `${Math.round(minutes / 1440)} дн.`;
+}
+
+function kpiCard(value, label, format, extra = null) {
+  const node = el("div", "kpi");
+  const num = el("b");
+  node.append(num, el("small", null, label));
+  if (extra) {
+    const delta = el("span", `delta ${extra.cls}`, extra.text);
+    node.append(delta);
+  }
+  if (typeof value === "number") animateNumber(num, value, format);
+  else num.textContent = value;
+  return node;
+}
+
+/** График «сеть сегодня»: столбцы по часам, поверх — линия «вчера». */
+function renderDayChart(liveRows) {
+  const host = document.getElementById("day-chart");
+  const today = new Array(24).fill(0);
+  const yesterday = new Array(24).fill(0);
+  for (const row of liveRows) {
+    row.hours_today.forEach((v, h) => { today[h] += v; });
+    row.hours_yesterday.forEach((v, h) => { yesterday[h] += v; });
+  }
+  // Часы показываем с 8 утра по кругу до 7 утра: клуб живёт вечером.
+  const order = [...Array(24).keys()].map((i) => (i + 8) % 24);
+  const nowHour = new Date().getHours();
+  const max = Math.max(1, ...today, ...yesterday);
+  const W = 640, H = 170, bw = W / 24;
+  const parts = [];
+  for (const y of [0.25, 0.5, 0.75, 1]) {
+    parts.push(`<line class="grid" x1="0" x2="${W}" y1="${H - H * y}" y2="${H - H * y}"></line>`);
+  }
+  order.forEach((h, i) => {
+    const past = (h - 8 + 24) % 24 <= (nowHour - 8 + 24) % 24;
+    const v = past ? today[h] : yesterday[h];
+    const height = (v / max) * H;
+    const cls = h === nowHour ? "now" : past ? "" : "future";
+    parts.push(
+      `<rect class="bar ${cls}" x="${(i * bw + 4).toFixed(1)}" y="${(H - height).toFixed(1)}" ` +
+        `width="${(bw - 8).toFixed(1)}" height="${height.toFixed(1)}" rx="3" style="animation-delay: ${i * 30}ms"></rect>`
+    );
+    if (i % 2 === 0) {
+      parts.push(`<text class="lbl" x="${(i * bw + bw / 2).toFixed(1)}" y="${H + 14}" text-anchor="middle">${String(h).padStart(2, "0")}</text>`);
+    }
+  });
+  const points = order.map((h, i) => `${(i * bw + bw / 2).toFixed(1)},${(H - (yesterday[h] / max) * H).toFixed(1)}`).join(" ");
+  parts.push(`<polyline class="yday" points="${points}"></polyline>`);
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H + 20}" preserveAspectRatio="none">${parts.join("")}</svg>`;
+}
+
+function renderClubsNow(clubs, live) {
+  const host = document.getElementById("clubs-now");
+  host.replaceChildren();
+  const rows = clubs
+    .filter((c) => c.status !== "archived")
+    .map((c) => ({ club: c, live: live[c.id] }))
+    .sort((a, b) => (b.live?.tables_busy ?? -1) - (a.live?.tables_busy ?? -1));
+  for (const { club, live: l } of rows) {
+    const row = el("div", "club-row");
+    const link = linkState(club, l);
+    const dot = el("span", `dot ${link.silent ? (club.status === "blocked" ? "grey" : "off") : "on"}`);
+    const name = el("span");
+    name.append(el("b", null, club.name), " ", el("span", "muted", club.city ?? ""));
+    const bar = el("div", "occ");
+    if (l?.tables_total) {
+      const fill = el("b");
+      fill.style.setProperty("--w", `${Math.round((l.tables_busy / l.tables_total) * 100)}%`);
+      bar.append(fill);
+    }
+    const num = el("span", "num");
+    if (l) {
+      num.append(`${l.tables_busy}/${l.tables_total} · `, el("b", null, moneyShort(l.revenue_today)));
+    } else {
+      num.className = "num muted";
+      num.textContent = club.status_label;
+    }
+    row.append(dot, name, bar, num);
+    row.addEventListener("click", () => openClubCard(club.id));
+    host.append(row);
+  }
+  if (!rows.length) host.append(el("p", "hub-empty", "Клубов пока нет."));
+}
+
+function renderSubscriptions(stats, clubs) {
+  const host = document.getElementById("subs-donut");
+  host.replaceChildren();
+  const parts = [
+    ["active", "var(--green-text)", "платят"],
+    ["trial", "#2f5fa8", "пробный"],
+    ["overdue", "var(--orange-text)", "просрочен"],
+    ["blocked", "var(--red)", "заблокирован"],
+  ];
+  const total = parts.reduce((s, [key]) => s + (stats.by_status[key] ?? 0), 0);
+  const circumference = 2 * Math.PI * 46;
+  let offsetShare = 0;
+  let svg = `<svg viewBox="0 0 110 110">`;
+  for (const [key, color] of parts) {
+    const share = total ? (stats.by_status[key] ?? 0) / total : 0;
+    if (!share) continue;
+    svg +=
+      `<circle cx="55" cy="55" r="46" stroke="${color}" stroke-dasharray="${circumference.toFixed(1)}" ` +
+      `style="--off: ${(circumference * (1 - share)).toFixed(1)}; transform: rotate(${(offsetShare * 360).toFixed(1)}deg)"></circle>`;
+    offsetShare += share;
+  }
+  svg += `</svg>`;
+  const wrap = el("div", "donut");
+  wrap.innerHTML = svg;
+  const legend = el("div", "lg");
+  for (const [key, color, label] of parts) {
+    const n = stats.by_status[key] ?? 0;
+    if (!n) continue;
+    const item = el("span");
+    const sw = el("i");
+    sw.style.background = color;
+    item.append(sw, `${n} ${label}${key === "active" ? ` · ${moneyShort(stats.mrr)}/мес` : ""}`);
+    legend.append(item);
+  }
+  if (!total) legend.append(el("span", "muted", "Клубов пока нет."));
+  wrap.append(legend);
+  host.append(wrap);
+
+  // Ближайшие оплаты: по дате «оплачено до», просроченные — сверху.
+  const upcoming = document.getElementById("upcoming");
+  upcoming.replaceChildren();
+  const due = clubs
+    .filter((c) => ["trial", "active", "overdue"].includes(c.status) && c.paid_until)
+    .sort((a, b) => Date.parse(a.paid_until) - Date.parse(b.paid_until))
+    .slice(0, 5);
+  for (const club of due) {
+    const row = el("div", "pay-row");
+    const left = el("span");
+    left.append(club.name, " ", el("span", "muted", club.status === "trial" ? "конец пробного" : club.status === "overdue" ? "просрочена" : ""));
+    const right = el("span", `num${club.status === "overdue" ? " bad" : ""}`);
+    right.textContent = `${club.plan_price ? moneyShort(club.plan_price) + " · " : ""}${date(club.paid_until)}`;
+    row.append(left, right);
+    row.addEventListener("click", () => openClubCard(club.id));
+    upcoming.append(row);
+  }
+}
+
+function renderEvents(entries, labels) {
+  const host = document.getElementById("events");
+  const latest = entries.slice(0, 6);
+  const known = new Set([...host.querySelectorAll("[data-id]")].map((n) => Number(n.dataset.id)));
+  host.replaceChildren();
+  for (const entry of latest) {
+    const row = el("div", `ev${known.size && !known.has(entry.id) ? " new" : ""}`);
+    row.dataset.id = String(entry.id);
+    const when = el("span", "when", new Date(entry.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }));
+    when.title = dateTime(entry.created_at);
+    const text = el("span");
+    if (entry.club_name) text.append(el("b", null, entry.club_name), " ");
+    text.append(`${labels[entry.event] ?? entry.event}: ${entry.message}`);
+    row.append(when, text);
+    if (entry.club_id) row.addEventListener("click", () => openClubCard(entry.club_id));
+    host.append(row);
+  }
+  if (!latest.length) host.append(el("p", "hub-empty", "Событий пока нет."));
+}
+
 async function loadOverview() {
   // Сначала живое: в сети оно же отмечает клубы «на связи», и сводка
   // считается уже с учётом этого.
   const live = await api("/hub/api/live").catch(() => ({}));
-  const data = await api("/hub/api/overview");
+  const [data, clubs, journal] = await Promise.all([
+    api("/hub/api/overview"),
+    api("/hub/api/clubs?status=all"),
+    api("/hub/api/journal").catch(() => ({ entries: [], labels: {} })),
+  ]);
   state.settings = data.settings;
   state.live = live;
+  state.clubs = clubs;
   const { stats } = data;
-
-  // Живые цифры по сети — только там, где базы клубов под рукой.
   const liveRows = Object.values(live).filter(Boolean);
-  const liveCards = liveRows.length
-    ? [
-        {
-          value: `${liveRows.reduce((s, r) => s + r.tables_busy, 0)} / ${liveRows.reduce((s, r) => s + r.tables_total, 0)}`,
-          label: "занято столов сейчас",
-        },
-        {
-          value: money(liveRows.reduce((s, r) => s + r.revenue_today, 0)),
-          label: "выручка клубов сегодня",
-        },
-      ]
-    : [];
+  const hasLive = liveRows.length > 0;
 
-  const cards = [
-    ...liveCards,
-    { value: stats.clubs_living, label: "клубов в сети" },
-    { value: stats.by_status.active, label: "платят сейчас" },
-    { value: stats.by_status.trial, label: "на пробном периоде" },
-    { value: stats.by_status.overdue, label: "просрочили оплату" },
-    { value: stats.by_status.blocked, label: "заблокированы" },
-    { value: `${stats.online}/${stats.clubs_living}`, label: "на связи" },
-    { value: money(stats.mrr), label: "выручка в месяц" },
-    { value: money(stats.paid_total), label: "получено всего" },
-  ];
-  const host = document.getElementById("stat-cards");
-  host.replaceChildren();
-  for (const card of cards) {
-    const node = el("div", "hub-card");
-    node.append(el("div", "hub-card-value", String(card.value)), el("div", "hub-card-label", card.label));
-    host.append(node);
+  const cards = document.getElementById("stat-cards");
+  cards.replaceChildren();
+  if (hasLive) {
+    const busy = liveRows.reduce((s, r) => s + r.tables_busy, 0);
+    const total = liveRows.reduce((s, r) => s + r.tables_total, 0);
+    const today = liveRows.reduce((s, r) => s + r.revenue_today, 0);
+    const yesterday = liveRows.reduce((s, r) => s + r.revenue_yesterday, 0);
+    const relaysOff = liveRows.reduce((s, r) => s + r.relays_offline, 0);
+    const load = total ? Math.round((busy / total) * 100) : 0;
+    cards.append(
+      kpiCard(busy, "занято столов сейчас", (v) => `${v} / ${total}`, { cls: load >= 50 ? "up" : "flat", text: `загрузка ${load} %` }),
+      kpiCard(today, "выручка клубов сегодня", moneyShort, yesterday
+        ? { cls: today >= yesterday ? "up" : "down", text: `${today >= yesterday ? "+" : ""}${Math.round(((today - yesterday) / yesterday) * 100)} % к вчера` }
+        : { cls: "flat", text: "вчера без выручки" })
+    );
+    const relays = kpiCard(relaysOff, "реле не отвечают", (v) => String(v), { cls: relaysOff ? "down" : "up", text: relaysOff ? `в ${liveRows.filter((r) => r.relays_offline).length} клубах` : "все на связи" });
+    if (relaysOff) relays.classList.add("warn");
+    cards.append(relays);
+  }
+  cards.append(
+    kpiCard(stats.online, "клубов на связи", (v) => `${v} / ${stats.clubs_living}`, { cls: stats.offline ? "down" : "up", text: stats.offline ? `${stats.offline} молчат` : "все" }),
+    kpiCard(stats.mrr, "подписки в месяц", moneyShort, { cls: "flat", text: `${stats.by_status.active} платят` }),
+    kpiCard(stats.by_status.trial, "на пробном периоде", (v) => String(v)),
+    kpiCard(stats.paid_total, "получено всего", moneyShort)
+  );
+  const overdue = kpiCard(stats.by_status.overdue, "просрочили оплату", (v) => String(v));
+  if (stats.by_status.overdue) overdue.classList.add("bad");
+  const attention = kpiCard(data.attention.length, "требуют внимания", (v) => String(v));
+  if (data.attention.length) attention.classList.add("warn");
+  cards.append(overdue, attention);
+
+  document.getElementById("live-panels").hidden = !hasLive;
+  if (hasLive) {
+    renderDayChart(liveRows);
+    renderClubsNow(clubs, live);
   }
 
-  const attention = document.getElementById("attention-list");
-  attention.replaceChildren();
+  const attentionHost = document.getElementById("attention-list");
+  attentionHost.replaceChildren();
+  document.getElementById("attention-count").textContent = data.attention.length ? String(data.attention.length) : "";
   if (!data.attention.length) {
-    attention.append(el("p", "hub-empty", "Всё спокойно: никого не надо догонять."));
+    attentionHost.append(el("p", "hub-empty", "Всё спокойно: никого не надо догонять."));
   }
-  for (const item of data.attention) {
+  data.attention.forEach((item, index) => {
     const node = el("div", `attention-item attention-${item.kind}`);
-    node.append(el("b", null, item.club_name), el("span", null, item.text));
-    node.addEventListener("click", () => {
-      switchTab("clubs");
-      const club = state.clubs.find((c) => c.id === item.club_id);
-      if (club) openClubCard(club.id);
-    });
-    attention.append(node);
-  }
+    node.style.animationDelay = `${index * 60}ms`;
+    const text = el("div");
+    text.append(el("b", null, item.club_name), " ", el("span", null, item.text));
+    node.append(text);
+    node.addEventListener("click", () => openClubCard(item.club_id));
+    attentionHost.append(node);
+  });
+
+  renderSubscriptions(stats, clubs);
+  renderEvents(journal.entries ?? [], journal.labels ?? {});
 
   renderTable(
     document.getElementById("growth-table"),
@@ -249,6 +462,7 @@ async function loadOverview() {
     stats.by_month,
     "Пока нет данных — они появятся, когда добавите первый клуб."
   );
+  state.refreshedAt = Date.now();
 }
 
 // --- Клубы ------------------------------------------------------------------
@@ -450,7 +664,7 @@ function openClubForm(club = null) {
           else await api("/hub/api/clubs", { method: "POST", body: JSON.stringify(payload) });
           closeModal();
           showToast(club ? "Карточка клуба сохранена" : "Клуб добавлен в сеть", true);
-          await loadClubs();
+          await refreshCurrentTab();
         })
       )
     )
@@ -459,11 +673,288 @@ function openClubForm(club = null) {
   name.focus();
 }
 
-async function openClubCard(clubId) {
-  const club = await api(`/hub/api/clubs/${clubId}`);
-  const payments = await api(`/hub/api/clubs/${clubId}/payments`);
-  const body = el("div");
+// --- Страница клуба ---------------------------------------------------------
+//
+// Всё про один клуб в одном месте: что в нём сейчас, подписка и оплаты,
+// сотрудники, журнал, копия базы и опасные действия. «Сейчас»,
+// «Сотрудники», «Журнал» и «Копия» — из базы клуба: в сети она под
+// рукой, у одиночной установки этих вкладок нет.
 
+const CLUB_TABS = [
+  ["now", "Сейчас", true],
+  ["subscription", "Подписка и оплаты", false],
+  ["staff", "Сотрудники", true],
+  ["journal", "Журнал клуба", true],
+  ["danger", "Копия и опасное", false],
+];
+
+const ROLE_LABELS = {
+  developer: "разработчик",
+  owner: "владелец",
+  manager: "управляющий",
+  admin: "администратор",
+  cashier: "кассир",
+};
+
+function formatSeconds(total) {
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  return h ? `${h} ч ${String(m).padStart(2, "0")} мин` : `${m} мин`;
+}
+
+/** Открывает страницу клуба (раньше — окно). */
+async function openClubCard(clubId, tab = null) {
+  state.club = { id: clubId, tab: tab ?? state.club?.tab ?? "now" };
+  await switchTab("club");
+}
+
+function clubTabButton([key, label]) {
+  const chip = el("button", `chip${state.club.tab === key ? " on" : ""}`, label);
+  chip.dataset.ctab = key;
+  chip.addEventListener("click", () => {
+    state.club.tab = key;
+    loadClubPage();
+  });
+  return chip;
+}
+
+async function loadClubPage() {
+  const { id } = state.club;
+  const club = await api(`/hub/api/clubs/${id}`);
+  // Программа клуба под рукой? В сети — да, если клуб её открывал.
+  const program = await api(`/hub/api/clubs/${id}/program/live`).catch(() => null);
+  state.clubProgram = program;
+  if (!program && ["now", "staff", "journal"].includes(state.club.tab)) {
+    state.club.tab = "subscription";
+  }
+
+  document.getElementById("hub-page-title").textContent = club.name;
+  document.getElementById("club-page-name").textContent = club.name;
+  const tables = program?.tables_total ?? club.tables_count;
+  document.getElementById("club-page-sub").textContent = [
+    club.city,
+    tables ? `${tables} столов` : null,
+    [club.owner_name, club.phone].filter(Boolean).join(", ") || null,
+    club.email,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const link = linkState(club, program);
+  const linkEl = document.getElementById("club-page-link");
+  linkEl.className = `club-link ${link.cls}`;
+  linkEl.textContent = link.text;
+
+  const actions = document.getElementById("club-page-actions");
+  actions.replaceChildren();
+  if (program) {
+    const open = el("a", "primary btn-link", "Открыть программу");
+    open.href = `/hub/api/clubs/${id}/program/open`;
+    open.target = "_blank";
+    open.rel = "noopener";
+    actions.append(open);
+  }
+  actions.append(
+    button("Оплата", "mini", () => openPaymentModal(club)),
+    button("Написать", "mini", () => openMessageForm(club)),
+    button("Изменить", "mini", () => openClubForm(club))
+  );
+
+  const tabs = document.getElementById("club-tabs");
+  tabs.replaceChildren(
+    ...CLUB_TABS.filter(([, , needsProgram]) => !needsProgram || program).map(clubTabButton)
+  );
+
+  const body = document.getElementById("club-tab-body");
+  body.replaceChildren();
+  switch (state.club.tab) {
+    case "now": body.append(buildNowTab(program)); break;
+    case "staff": body.append(await buildStaffTab(id)); break;
+    case "journal": body.append(await buildJournalTab(id)); break;
+    case "danger": body.append(buildDangerTab(club, program)); break;
+    default: body.append(await buildSubscriptionTab(club));
+  }
+}
+
+function buildNowTab(live) {
+  const wrap = el("div", "hub-page");
+  const cards = el("div", "kpis");
+  cards.append(
+    kpiCard(live.tables_busy, "занято столов", (v) => `${v} / ${live.tables_total}`),
+    kpiCard(live.revenue_today, "сегодня", moneyShort, { cls: "flat", text: `${live.sessions_today} сеансов` }),
+    kpiCard(live.revenue_yesterday, "вчера", moneyShort),
+    kpiCard(live.revenue_week, "за 7 дней", moneyShort),
+    kpiCard(
+      live.shift ? live.shift.cashier : "—",
+      live.shift
+        ? `на смене с ${new Date(live.shift.opened_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
+        : "смена не открыта",
+      (v) => v
+    ),
+    kpiCard(live.relays_offline, "реле не отвечают", (v) => `${v} / ${live.relays_total}`)
+  );
+  wrap.append(cards);
+
+  const tablesPanel = el("div", "hub-panel");
+  tablesPanel.append(el("h2", null, "Столы"));
+  const table = el("table", "hub-table");
+  renderTable(
+    table,
+    [
+      { title: "Стол", render: (t) => t.name },
+      {
+        title: "Состояние",
+        render: (t) => {
+          const pill = el("span", `pill ${t.busy ? "pill-active" : "pill-archived"}`, t.busy ? (t.prepaid ? "предоплата" : "занят") : "свободен");
+          return pill;
+        },
+      },
+      { title: "Время", render: (t) => (t.busy ? formatSeconds(t.elapsed_seconds) : "—") },
+      { title: "Сумма", className: "num", render: (t) => (t.busy ? money(t.cost) : "—") },
+      {
+        title: "Реле",
+        render: (t) => {
+          if (!t.relay) return el("span", "muted", "без реле");
+          const state = t.relay.online === true ? ["ok", "в сети"] : t.relay.online === false ? ["bad", "нет связи"] : ["muted", "не проверяется"];
+          return el("span", `device-link ${state[0]}`, `${relayKindLabel(t.relay.kind)} · ${state[1]}`);
+        },
+      },
+    ],
+    live.tables,
+    "Столов в клубе ещё нет."
+  );
+  tablesPanel.append(table);
+  wrap.append(tablesPanel);
+
+  if (live.devices.length) {
+    const devPanel = el("div", "hub-panel");
+    devPanel.append(el("h2", null, "Устройства зала"));
+    const dev = el("table", "hub-table");
+    renderTable(
+      dev,
+      [
+        { title: "Устройство", render: (d) => d.name },
+        {
+          title: "Состояние",
+          render: (d) =>
+            d.type === "damper"
+              ? d.position ? `открыта на ${d.position}%` : "закрыта"
+              : d.is_on ? "работает" : "стоит",
+        },
+        { title: "Цикл", render: (d) => (d.type === "damper" ? "—" : d.cycle_on ? `${d.work_minutes}/${d.rest_minutes} мин` : "выключен") },
+        {
+          title: "Реле",
+          render: (d) => {
+            if (!d.relay) return el("span", "muted", "без реле");
+            const state = d.relay.online === true ? ["ok", "в сети"] : d.relay.online === false ? ["bad", "нет связи"] : ["muted", "не проверяется"];
+            return el("span", `device-link ${state[0]}`, state[1]);
+          },
+        },
+      ],
+      live.devices,
+      ""
+    );
+    devPanel.append(dev);
+    wrap.append(devPanel);
+  }
+  return wrap;
+}
+
+async function buildStaffTab(clubId) {
+  const users = await api(`/hub/api/clubs/${clubId}/program/users`);
+  const panel = el("div", "hub-panel");
+  panel.append(el("h2", null, "Сотрудники клуба"));
+  panel.append(
+    el("p", "hint", "Новый пароль, отключение и роль — то же, что делает владелец клуба у себя; каждое действие подписывается панелью сети в журнале клуба.")
+  );
+  const table = el("table", "hub-table");
+  const reload = () => loadClubPage();
+  renderTable(
+    table,
+    [
+      { title: "Логин", render: (u) => u.login },
+      { title: "Имя", render: (u) => u.name },
+      { title: "Роль", render: (u) => ROLE_LABELS[u.role] ?? u.role },
+      { title: "Доступ", render: (u) => el("span", `pill ${u.is_active ? "pill-active" : "pill-archived"}`, u.is_active ? "открыт" : "закрыт") },
+      {
+        title: "",
+        className: "row-actions-cell",
+        render: (u) => {
+          const wrap = el("div", "row-actions");
+          wrap.append(
+            button("Новый пароль", "mini", () => openPasswordModal(clubId, u, reload)),
+            button(
+              u.is_active ? "Закрыть доступ" : "Открыть доступ",
+              `mini${u.is_active ? " danger" : ""}`,
+              guard(async () => {
+                await api(`/hub/api/clubs/${clubId}/program/users/${u.id}`, {
+                  method: "PUT",
+                  body: JSON.stringify({ is_active: !u.is_active }),
+                });
+                showToast(u.is_active ? `${u.login}: доступ закрыт` : `${u.login}: доступ открыт`, true);
+                await reload();
+              })
+            )
+          );
+          return wrap;
+        },
+      },
+    ],
+    users,
+    "В программе клуба ещё нет сотрудников."
+  );
+  panel.append(table);
+  return panel;
+}
+
+function openPasswordModal(clubId, user, reload) {
+  const body = el("div");
+  body.append(el("p", "hint", `Новый пароль для ${user.name} (${user.login}). Старый перестанет работать сразу.`));
+  const input = textInput("", "минимум 4 символа");
+  input.type = "text";
+  body.append(field("Пароль", input));
+  body.append(
+    actionsRow(
+      button("Поставить пароль", "primary", guard(async () => {
+        await api(`/hub/api/clubs/${clubId}/program/users/${user.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ password: input.value }),
+        });
+        closeModal();
+        showToast(`${user.login}: пароль обновлён`, true);
+        await reload();
+      }))
+    )
+  );
+  openModal(`Пароль — ${user.login}`, body);
+  input.focus();
+}
+
+async function buildJournalTab(clubId) {
+  const entries = await api(`/hub/api/clubs/${clubId}/program/journal`);
+  const panel = el("div", "hub-panel");
+  panel.append(el("h2", null, "Журнал клуба"), el("p", "hint", "Последние 100 записей из программы клуба: кто что нажимал."));
+  const table = el("table", "hub-table");
+  renderTable(
+    table,
+    [
+      { title: "Когда", render: (e) => dateTime(e.created_at) },
+      { title: "Что", render: (e) => e.message },
+    ],
+    entries,
+    "Журнал клуба пуст."
+  );
+  panel.append(table);
+  return panel;
+}
+
+async function buildSubscriptionTab(club) {
+  const clubId = club.id;
+  const payments = await api(`/hub/api/clubs/${clubId}/payments`);
+  const body = el("div", "hub-page");
+  const split = el("div", "hub-split");
+
+  const info = el("div", "hub-panel");
+  info.append(el("h2", null, "Подписка"));
   const lines = el("div", "check-lines");
   const line = (label, value) => {
     const row = el("div", "check-line");
@@ -474,38 +965,38 @@ async function openClubCard(clubId) {
     row.append(right);
     lines.append(row);
   };
-  line("Подписка", statusPill(club));
+  line("Статус", statusPill(club));
   line("Тариф", club.plan_name ?? "не назначен");
   line("Оплачено до", date(club.paid_until));
   if (club.grace_until) line("Отсрочка до", date(club.grace_until));
-  line("Город", club.city || "—");
-  line("Владелец", [club.owner_name, club.phone].filter(Boolean).join(", ") || "—");
-  line("Почта", club.email || "—");
-  line("На связи", dateTime(club.last_seen_at));
-  line("Версия программы", club.app_version ?? "—");
-  line("Столов в клубе", club.tables_count === null ? "—" : String(club.tables_count));
   line("Получено всего", money(club.paid_total));
+  line("Клуб в сети с", date(club.created_at));
   if (club.note) line("Заметка", club.note);
-  body.append(lines);
+  info.append(lines);
+  info.append(
+    actionsRow(
+      button("Отметить оплату", "primary", () => openPaymentModal(club)),
+      button("Дать отсрочку", "mini", () => openGraceModal(club))
+    )
+  );
 
   // Ключ доступа: его вписывают в программу клуба один раз.
   const key = el("details");
   key.append(el("summary", null, "Ключ доступа для программы клуба"));
   key.append(el("div", "key-box", club.api_key));
-  const keyHint = el("p", "hint",
-    "Вписывается в программе клуба один раз. Если ключ утёк — выдайте новый: " +
-    "старый перестанет работать сразу.");
-  key.append(keyHint);
   key.append(
+    el("p", "hint", "Вписывается в программе клуба один раз. Если ключ утёк — выдайте новый: старый перестанет работать сразу."),
     button("Выдать новый ключ", "mini danger", guard(async () => {
       await api(`/hub/api/clubs/${clubId}/key`, { method: "POST" });
       showToast("Выдан новый ключ — впишите его в программе клуба", true);
-      await openClubCard(clubId);
+      await loadClubPage();
     }))
   );
-  body.append(key);
+  info.append(key);
+  split.append(info);
 
-  body.append(el("h4", null, "История оплат"));
+  const history = el("div", "hub-panel");
+  history.append(el("h2", null, "История оплат"));
   const table = el("table", "hub-table");
   renderTable(
     table,
@@ -519,23 +1010,58 @@ async function openClubCard(clubId) {
     payments,
     "Оплат ещё не было."
   );
-  body.append(table);
+  history.append(table);
+  split.append(history);
+  body.append(split);
+  return body;
+}
 
-  const actions = el("div", "hub-modal-actions");
-  actions.append(
-    button("Отметить оплату", "primary", () => openPaymentModal(club)),
-    button("Изменить", "mini", () => openClubForm(club)),
-    button("Дать отсрочку", "mini", () => openGraceModal(club)),
-    button("Написать клубу", "mini", () => openMessageForm(club)),
-    button("Войти для поддержки", "mini", () => openSupportModal(club))
+function buildDangerTab(club, program) {
+  const clubId = club.id;
+  const wrap = el("div", "hub-page");
+
+  if (program) {
+    const backup = el("div", "hub-panel");
+    backup.append(el("h2", null, "Копия базы клуба"));
+    backup.append(el("p", "hint", "Файл .db со всем клубом: столы, история, клиенты, сотрудники, настройки. Скачивание пишется в журнал сети."));
+    const link = el("a", "mini btn-link", "Скачать копию базы");
+    link.href = `/hub/api/clubs/${clubId}/program/backup`;
+    backup.append(actionsRow(link));
+    wrap.append(backup);
+
+    const shift = el("div", "hub-panel");
+    shift.append(el("h2", null, "Смена"));
+    shift.append(
+      el("p", "hint", program.shift
+        ? `Открыта: ${program.shift.cashier} с ${dateTime(program.shift.opened_at)}. Закрыть можно отсюда — от имени того, кто открывал, с пометкой панели сети.`
+        : "Открытой смены нет.")
+    );
+    if (program.shift) {
+      shift.append(
+        actionsRow(
+          button("Закрыть смену", "mini danger", guard(async () => {
+            await api(`/hub/api/clubs/${clubId}/program/shift/close`, { method: "POST" });
+            showToast("Смена закрыта", true);
+            await loadClubPage();
+          }))
+        )
+      );
+    }
+    wrap.append(shift);
+  }
+
+  const danger = el("div", "hub-panel");
+  danger.append(el("h2", null, "Доступ клуба к сети"));
+  danger.append(
+    el("p", "hint", "Блокировка сильнее любых дат: программа клуба перестаёт пускать сотрудников, пока клуб не разблокируют. Архив — клуб выбывает из сети, но его данные остаются.")
   );
+  const actions = el("div", "hub-modal-actions");
   if (club.status === "archived") {
     actions.append(
       button("Вернуть из архива", "mini", guard(async () => {
         await api(`/hub/api/clubs/${clubId}/restore`, { method: "POST" });
-        closeModal();
         showToast("Клуб возвращён в сеть", true);
-        await refreshCurrentTab();
+        await loadClubPage();
       }))
     );
   } else {
@@ -549,21 +1075,21 @@ async function openClubCard(clubId) {
             body: JSON.stringify({ blocked: !club.blocked_manually }),
           });
           showToast(club.blocked_manually ? "Клуб разблокирован" : "Клуб заблокирован", true);
-          await openClubCard(clubId);
-          await loadClubs();
+          await loadClubPage();
         })
       ),
       button("В архив", "mini danger", guard(async () => {
         await api(`/hub/api/clubs/${clubId}/archive`, { method: "POST" });
-        closeModal();
         showToast("Клуб отправлен в архив", true);
-        await refreshCurrentTab();
-      }))
+        state.club = null;
+        await switchTab("clubs");
+      })),
+      button("Ключ для поддержки", "mini", () => openSupportModal(club))
     );
   }
-  body.append(actions);
-
-  openModal(club.name, body);
+  danger.append(actions);
+  wrap.append(danger);
+  return wrap;
 }
 
 function openPaymentModal(club) {
@@ -947,6 +1473,7 @@ const LOADERS = {
   messages: loadMessages,
   journal: loadJournal,
   settings: loadSettings,
+  club: loadClubPage,
 };
 
 function refreshCurrentTab() {
@@ -956,15 +1483,17 @@ function refreshCurrentTab() {
 async function switchTab(tab) {
   state.tab = tab;
   document.getElementById("hub-page-title").textContent = TAB_TITLES[tab] ?? "";
+  // Страница клуба живёт под пунктом «Клубы».
+  const navTab = tab === "club" ? "clubs" : tab;
   for (const button of document.querySelectorAll(".hub-tab")) {
-    button.classList.toggle("on", button.dataset.tab === tab);
+    button.classList.toggle("on", button.dataset.tab === navTab);
   }
   for (const page of document.querySelectorAll(".hub-page")) {
     page.hidden = page.dataset.page !== tab;
   }
   // Список клубов нужен окнам «написать клубу» и карточкам, а тарифы —
   // выпадающему списку в карточке клуба: держим их наготове.
-  if (tab === "clubs" && !state.plans.length) {
+  if ((tab === "clubs" || tab === "club") && !state.plans.length) {
     state.plans = await api("/hub/api/plans").catch(() => []);
   }
   if ((tab === "messages" || tab === "overview") && !state.clubs.length) {
@@ -1027,8 +1556,9 @@ async function switchTab(tab) {
   // Плитки клубов и сводка живут: раз в полминуты перечитываем, пока
   // открыта соответствующая вкладка. Открытое окно это не трогает.
   setInterval(() => {
-    if (state.tab === "clubs" || state.tab === "overview") refreshCurrentTab();
+    if (["clubs", "overview", "club"].includes(state.tab)) refreshCurrentTab();
   }, 30000);
+  document.getElementById("club-back").addEventListener("click", () => switchTab("clubs"));
   document.getElementById("journal-event").addEventListener("change", () => loadJournal());
   document.getElementById("settings-save").addEventListener(
     "click",

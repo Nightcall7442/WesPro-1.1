@@ -44,7 +44,14 @@ export function mountHubAndAccount(app, hubDb, options = {}) {
     if (req.hubUser) return res.redirect("/hub");
     res.sendFile(path.join(PUBLIC_DIR, "hub-login.html"));
   });
-  app.use("/hub", createHubRouter(hubDb, { liveStats: options.liveStats }));
+  app.use(
+    "/hub",
+    createHubRouter(hubDb, {
+      liveStats: options.liveStats,
+      tenantDb: options.tenantDb,
+      openClubProgram: options.openClubProgram,
+    })
+  );
 
   // --- Личный кабинет владельца клуба ---------------------------------------
   // Тоже своя cookie (Path=/account), поэтому и вход, и API — на своём

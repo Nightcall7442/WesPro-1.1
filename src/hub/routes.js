@@ -8,8 +8,15 @@
 // видит — ключ утёк бы вместе с компьютером клуба.
 
 import express from "express";
+import fs from "node:fs";
 
+import { backupFileName, exportBackupFile } from "../services/backup.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../services/errors.js";
+import { listJournal } from "../services/journal.js";
+import { getClubSettings } from "../services/settings.js";
+import { closeShift } from "../services/shifts.js";
+import { listUsers, updateUser } from "../services/users.js";
+import { clubLiveDetail } from "./live.js";
 import { hubSettings, saveHubSettings } from "./db.js";
 import {
   addPayment,
@@ -58,10 +65,14 @@ function intParam(value) {
 /**
  * Роутер панели.
  * @param {import("node:sqlite").DatabaseSync} hubDb
- * @param {{liveStats?: (clubs: Array<{id: number}>) => Record<number, object|null>}} [options]
- *   liveStats — живое состояние клубов из их баз; есть только в сети клубов
+ * @param {{
+ *   liveStats?: (clubs: Array<{id: number}>) => Record<number, object|null>,
+ *   tenantDb?: (club: {id: number}) => import("node:sqlite").DatabaseSync | null,
+ *   openClubProgram?: (club: object, res: import("express").Response) => void,
+ * }} [options] хуки сети клубов: живое состояние, база клуба по карточке,
+ *   вход в программу клуба владельцем — у одиночной установки их нет
  */
-export function createHubRouter(hubDb, { liveStats = null } = {}) {
+export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, openClubProgram = null } = {}) {
   const router = express.Router();
 
   // --- Программы клубов: отметка на связи ----------------------------------
@@ -247,6 +258,111 @@ export function createHubRouter(hubDb, { liveStats = null } = {}) {
     const clubId = req.query.club_id ? intParam(req.query.club_id) : null;
     res.json(listSupportLogins(hubDb, clubId));
   });
+
+  // --- Программа клуба: управление из панели --------------------------------
+  //
+  // В сети клубов база каждого клуба под рукой, и владелец сети может
+  // не только смотреть подписку, но и заглянуть внутрь: столы и реле
+  // сейчас, сотрудники, журнал, копия базы. Права — как у разработчика
+  // клуба: это и есть поддержка, только без одноразовых ключей. Каждое
+  // действие подписывается «Панель сети: имя».
+  const program = express.Router({ mergeParams: true });
+  program.use((req, res, next) => {
+    const id = intParam(req.params.id);
+    const club = id === null ? null : getClub(hubDb, id);
+    if (!club) return res.status(404).json({ detail: "Клуб не найден" });
+    const db = tenantDb ? tenantDb(club) : null;
+    if (!db) {
+      return res.status(404).json({
+        detail: tenantDb
+          ? "Программа клуба ещё не открывалась — базы нет"
+          : "Доступно только в сети клубов",
+      });
+    }
+    req.club = club;
+    req.clubDb = db;
+    req.author = { id: 0, name: `Панель сети: ${req.hubUser.name}`, role: "developer" };
+    next();
+  });
+
+  program.get("/live", (req, res) => {
+    res.json({ ...clubLiveDetail(req.clubDb), settings: getClubSettings(req.clubDb) });
+  });
+
+  program.get("/users", (req, res) => {
+    res.json(listUsers(req.clubDb));
+  });
+
+  // Сброс пароля, отключение, роль — то же, что делает владелец клуба у себя.
+  program.put("/users/:uid", (req, res) => {
+    const uid = intParam(req.params.uid);
+    if (uid === null) return res.status(404).json({ detail: "Сотрудник не найден" });
+    const body = req.body ?? {};
+    const patch = {};
+    for (const key of ["name", "role", "is_active", "password"]) {
+      if (key in body) patch[key] = body[key];
+    }
+    const user = updateUser(req.clubDb, uid, patch, req.author);
+    logHubEvent(
+      hubDb,
+      HubEvent.CLUB_UPDATED,
+      `«${req.club.name}»: изменён сотрудник ${user.login}` +
+        `${"password" in patch ? " (новый пароль)" : ""} — ${req.hubUser.name}`,
+      req.club.id
+    );
+    res.json(user);
+  });
+
+  program.get("/journal", (req, res) => {
+    res.json(listJournal(req.clubDb, 100));
+  });
+
+  // Смена, которую забыли закрыть: закрывается от имени того, кто её открыл.
+  program.post("/shift/close", (req, res) => {
+    const open = req.clubDb
+      .prepare(
+        `SELECT s.user_id, u.name FROM shifts s JOIN users u ON u.id = s.user_id
+         WHERE s.closed_at IS NULL ORDER BY s.opened_at DESC LIMIT 1`
+      )
+      .get();
+    if (!open) throw new ConflictError("Открытой смены нет — закрывать нечего");
+    const shift = closeShift(req.clubDb, { id: open.user_id, name: `${open.name} (закрыто панелью сети)` });
+    logHubEvent(
+      hubDb,
+      HubEvent.CLUB_UPDATED,
+      `«${req.club.name}»: смена ${open.name} закрыта из панели — ${req.hubUser.name}`,
+      req.club.id
+    );
+    res.json(shift);
+  });
+
+  program.get("/backup", (req, res) => {
+    const target = exportBackupFile(req.clubDb);
+    logHubEvent(
+      hubDb,
+      HubEvent.SUPPORT_LOGIN,
+      `«${req.club.name}»: скачана копия базы — ${req.hubUser.name}`,
+      req.club.id
+    );
+    res.download(target, backupFileName(), () => {
+      fs.unlink(target, () => {});
+    });
+  });
+
+  // Вход в программу клуба в один клик — владельцем клуба. Попадает в
+  // журнал сети: постоянного тихого доступа в чужой клуб нет ни у кого.
+  program.get("/open", (req, res) => {
+    if (!openClubProgram) return res.status(404).json({ detail: "Доступно только в сети клубов" });
+    logHubEvent(
+      hubDb,
+      HubEvent.SUPPORT_LOGIN,
+      `Вход в программу «${req.club.name}» из панели сети — ${req.hubUser.name}`,
+      req.club.id
+    );
+    openClubProgram(req.club, res);
+  });
+
+  router.use("/api/clubs/:id/program", program);
 
   // --- Тарифы сервиса ------------------------------------------------------
 

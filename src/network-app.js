@@ -107,6 +107,18 @@ export function createNetworkApp(hubDb, { tenants = createTenants(hubDb) } = {})
           return [club.id, stats];
         })
       ),
+    tenantDb: (club) => tenants.peek(club)?.db ?? null,
+    // Владелец сети заходит в клуб владельцем клуба: те же cookie, что
+    // ставит кабинет, — клуб выбран, сессия открыта.
+    openClubProgram: (club, res) => {
+      const owner = tenants.ownerUser(club);
+      if (!owner) {
+        return res.status(409).json({ detail: "У клуба нет владельца в программе" });
+      }
+      const token = createAuthSession(tenants.for(club).db, owner.id);
+      res.setHeader("Set-Cookie", [tenantCookie(club.code), sessionCookie(token)]);
+      res.redirect("/");
+    },
     // Из кабинета — сразу в программу: владелец уже доказал, кто он,
     // второй раз спрашивать тот же пароль незачем.
     openProgram: (req, res) => {
