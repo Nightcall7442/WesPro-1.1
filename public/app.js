@@ -3263,7 +3263,10 @@ async function addPromotion() {
   }
 }
 
-/** Ограничение выбора тарифа по столам: пусто = доступны все активные. */
+/**
+ * Цена каждого стола: таблица «стол — тариф — цена». Один тариф на стол,
+ * кассир его не выбирает; «не назначен» — берётся тариф по расписанию.
+ */
 async function renderTableTariffBindings() {
   const wrap = document.getElementById("table-tariff-bindings");
   const [tables, activeTariffs] = await Promise.all([
@@ -3272,63 +3275,96 @@ async function renderTableTariffBindings() {
   ]);
   wrap.replaceChildren();
   if (activeTariffs.length === 0) {
-    wrap.textContent = "Сначала добавьте хотя бы один тариф.";
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "Сначала добавьте хотя бы один тариф.";
+    wrap.append(empty);
     return;
   }
-  for (const table of tables) {
-    const row = document.createElement("div");
-    row.className = "table-tariff-row";
-    const name = document.createElement("div");
-    name.className = "table-tariff-name";
-    name.textContent = table.name;
-    row.append(name);
+
+  const table = document.createElement("table");
+  table.className = "data-table";
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const text of ["Стол", "Тариф", "Цена"]) {
+    const th = document.createElement("th");
+    th.textContent = text;
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  const tbody = document.createElement("tbody");
+  table.append(thead, tbody);
+
+  const priceOf = (tariffId) => {
+    const tariff = activeTariffs.find((t) => t.id === Number(tariffId));
+    return tariff ? `${tariff.price_per_hour} ${cur()}/час` : "по расписанию";
+  };
+
+  for (const item of tables) {
+    const tr = document.createElement("tr");
+
+    const nameCell = document.createElement("td");
+    nameCell.className = "table-tariff-name";
+    const meta = KIND_META[item.kind] ?? KIND_META.billiard;
+    nameCell.append(icon(meta.ic), item.name);
+    nameCell.title = meta.label;
 
     // Один тариф на стол: это его цена, кассир её не выбирает.
     const select = document.createElement("select");
-    const empty = document.createElement("option");
-    empty.value = "";
-    empty.textContent = "Не назначен (любой активный)";
-    select.append(empty);
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "Не назначен — по расписанию";
+    select.append(none);
     for (const tariff of activeTariffs) {
       const option = document.createElement("option");
       option.value = String(tariff.id);
-      option.textContent = `${tariff.name} — ${tariff.price_per_hour} ${cur()}/час`;
+      option.textContent = tariff.name;
       select.append(option);
     }
-    const assigned = table.allowed_tariff_ids ?? [];
+    const assigned = item.allowed_tariff_ids ?? [];
     select.value = assigned.length === 1 ? String(assigned[0]) : "";
+    const selectCell = document.createElement("td");
+    selectCell.append(select);
 
     // Столы с несколькими тарифами (день/ночь по расписанию) настраивались
     // раньше галочками — такую связку не ломаем, просто показываем как есть.
-    const multi = document.createElement("span");
+    const multi = document.createElement("div");
     multi.className = "hint";
     if (assigned.length > 1) {
       multi.textContent =
         `Назначено несколько (${assigned.length}) — выбирает расписание. ` +
         "Выберите один тариф, чтобы закрепить цену.";
+      selectCell.append(multi);
     }
+
+    const priceCell = document.createElement("td");
+    priceCell.className = "table-tariff-price";
+    priceCell.textContent = assigned.length === 1 ? priceOf(assigned[0]) : "по расписанию";
 
     select.addEventListener("change", async () => {
       const value = select.value ? [Number(select.value)] : [];
       try {
-        await api(`/api/tables/${table.id}/tariffs`, {
+        await api(`/api/tables/${item.id}/tariffs`, {
           method: "PUT",
           body: JSON.stringify({ tariff_ids: value }),
         });
-        multi.textContent = "";
+        multi.remove();
+        priceCell.textContent = value.length ? priceOf(value[0]) : "по расписанию";
         showToast(
           value.length
-            ? `${table.name}: тариф закреплён`
-            : `${table.name}: тариф не назначен — возьмётся любой активный`,
+            ? `${item.name}: тариф закреплён`
+            : `${item.name}: тариф не назначен — возьмётся по расписанию`,
           true
         );
       } catch (error) {
         showToast(error.message);
       }
     });
-    row.append(select, multi);
-    wrap.append(row);
+
+    tr.append(nameCell, selectCell, priceCell);
+    tbody.append(tr);
   }
+  wrap.append(table);
 }
 
 function timeToMinutes(value) {

@@ -979,15 +979,12 @@ button.mini.danger:hover { background: rgba(200, 72, 63, 0.14); }
 
 .tariff-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-.table-tariff-bindings { display: flex; flex-direction: column; gap: 10px; }
-.table-tariff-row {
-  border: 0.5px solid var(--hairline);
-  border-radius: 12px;
-  padding: 10px 14px;
-}
-.table-tariff-name { font-weight: 700; margin-bottom: 6px; }
-.table-tariff-boxes { display: flex; flex-wrap: wrap; gap: 6px 16px; }
-.table-tariff-box { display: inline-flex; align-items: center; gap: 5px; font-size: 0.88rem; cursor: pointer; }
+/* Цена стола: таблица «стол — тариф — цена». */
+.table-tariff-name { font-weight: 700; white-space: nowrap; }
+.table-tariff-name .ic { margin-right: 7px; }
+.table-tariff-bindings select { min-width: 220px; width: auto; }
+.table-tariff-bindings .hint { margin-top: 6px; }
+.table-tariff-price { white-space: nowrap; color: var(--muted); font-weight: 600; }
 
 /* --- Модальные окна --- */
 
