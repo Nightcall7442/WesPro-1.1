@@ -650,3 +650,50 @@ test("офлайн-клуб (exe) присылает снимок базы, и �
   server.close();
   clubDb.close();
 });
+
+test("WesPro.exe: владелец сети загружает в панель, клуб скачивает из настроек", async (t) => {
+  const { app, dir, hubDb } = makeNetwork(t);
+  const wasDir = process.env.WESPRO_DOWNLOADS_DIR;
+  process.env.WESPRO_DOWNLOADS_DIR = path.join(dir, "downloads");
+  t.after(() => {
+    if (wasDir === undefined) delete process.env.WESPRO_DOWNLOADS_DIR;
+    else process.env.WESPRO_DOWNLOADS_DIR = wasDir;
+  });
+  const club = await registerAndOpen(app, { name: "Exe", email: "exe@x.uz" });
+
+  // Пока ничего не загружено — у клуба кнопки нет, скачивать нечего.
+  assert.equal((await club.get("/api/exe")).body.exe, null);
+  assert.equal((await supertest(app).get("/download/WesPro.exe")).status, 404);
+
+  const { createHubUser } = await import("../src/hub/auth.js");
+  createHubUser(hubDb, { login: "boss", name: "Владелец сети", password: "boss12345" });
+  const hub = supertest.agent(app);
+  await hub.post("/hub/api/auth/login").send({ login: "boss", password: "boss12345" });
+  assert.equal((await hub.get("/hub/api/exe")).body.exe, null);
+
+  // Мелочь и не-exe не принимаем.
+  const small = await hub.post("/hub/api/exe").set("Content-Type", "application/octet-stream").send(Buffer.from("MZ tiny"));
+  assert.equal(small.status, 409);
+  const notExe = Buffer.alloc(21 * 1024 * 1024, 1);
+  assert.equal((await hub.post("/hub/api/exe").set("Content-Type", "application/octet-stream").send(notExe)).status, 409);
+
+  const exe = Buffer.alloc(21 * 1024 * 1024, 7);
+  exe.write("MZ", 0, "latin1");
+  const uploaded = await hub.post("/hub/api/exe").set("Content-Type", "application/octet-stream").set("X-Version", "1.20.0").send(exe);
+  assert.equal(uploaded.status, 200, uploaded.text);
+  assert.equal(uploaded.body.exe.version, "1.20.0");
+  assert.equal(uploaded.body.exe.size, exe.length);
+  assert.equal(uploaded.body.exe.by, "Владелец сети");
+
+  const shown = (await club.get("/api/exe")).body.exe;
+  assert.equal(shown.version, "1.20.0");
+  const download = await supertest(app).get("/download/WesPro.exe").buffer(true).parse((res, cb) => {
+    const chunks = [];
+    res.on("data", (c) => chunks.push(c));
+    res.on("end", () => cb(null, Buffer.concat(chunks)));
+  });
+  assert.equal(download.status, 200);
+  assert.match(download.headers["content-disposition"], /WesPro\.exe/);
+  assert.equal(download.body.length, exe.length);
+  assert.equal(download.body[0], 0x4d);
+});

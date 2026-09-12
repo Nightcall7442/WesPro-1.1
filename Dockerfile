@@ -18,6 +18,9 @@ ENV WESPRO_HUB_DATABASE_PATH=/data/hub.db
 # Работает только вместе с WESPRO_NETWORK=1; переменную ставят в панели
 # хостинга, чтобы этот же образ годился и для установки на один клуб.
 ENV WESPRO_CLUBS_DIR=/data/clubs
+# Снимки баз офлайн-клубов и загруженный WesPro.exe — тоже на диске.
+ENV WESPRO_MIRRORS_DIR=/data/mirrors
+ENV WESPRO_DOWNLOADS_DIR=/data/downloads
 RUN mkdir -p /data
 
 EXPOSE 8000

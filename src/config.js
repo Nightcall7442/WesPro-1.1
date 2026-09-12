@@ -85,6 +85,13 @@ export const PUBLIC_DIR = IS_EXE ? unpackPublicAssets() : path.join(ROOT_DIR, "p
 export const MIRRORS_DIR =
   process.env.WESPRO_MIRRORS_DIR ?? path.join(ROOT_DIR, "data", "mirrors");
 
+// Раздача WesPro.exe клубам: файл сюда загружает владелец сети из панели
+// (собрать exe можно только на Windows, сервер сам не соберёт). Функция,
+// а не константа: тесты подставляют временную папку.
+export function downloadsDir() {
+  return process.env.WESPRO_DOWNLOADS_DIR ?? path.join(ROOT_DIR, "data", "downloads");
+}
+
 // Что показывать на корневом адресе неавторизованному гостю: описание
 // системы (по умолчанию) или сразу форму входа.
 //

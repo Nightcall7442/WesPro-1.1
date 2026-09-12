@@ -11,6 +11,7 @@ import express from "express";
 import fs from "node:fs";
 
 import { backupFileName, exportBackupFile } from "../services/backup.js";
+import { exeInfo, saveExe } from "../services/downloads.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../services/errors.js";
 import { listJournal } from "../services/journal.js";
 import { currentVersion } from "../services/diagnostics.js";
@@ -554,6 +555,27 @@ export function createHubRouter(
       `Всем клубам (${rows.length}): «${feature.label}» ${enabled ? "включено" : "выключено"} — ${req.hubUser.name}`
     );
     res.json({ updated: rows.length, enabled });
+  });
+
+  // --- WesPro.exe для клубов -------------------------------------------------
+  // Собирается на Windows (npm run build:exe) и загружается сюда; клубы
+  // скачивают его из своих «Настроек» по /download/WesPro.exe.
+
+  router.get("/api/exe", (req, res) => {
+    res.json({ exe: exeInfo() });
+  });
+
+  router.post("/api/exe", (req, res) => {
+    const info = saveExe(req.body, {
+      version: req.get("X-Version") ?? "",
+      by: req.hubUser.name,
+    });
+    logHubEvent(
+      hubDb,
+      HubEvent.CLUB_UPDATED,
+      `Загружен WesPro.exe версии ${info.version} (${(info.size / 1024 / 1024).toFixed(1)} МБ) — ${req.hubUser.name}`
+    );
+    res.json({ exe: info });
   });
 
   // --- Тарифы сервиса ------------------------------------------------------

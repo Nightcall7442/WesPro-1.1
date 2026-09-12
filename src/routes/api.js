@@ -68,6 +68,7 @@ import {
 } from "../services/devices.js";
 import { describeSchema, runReadOnlyQuery } from "../services/sql-console.js";
 import { networkMode, RESTART_EXIT_CODE } from "../config.js";
+import { exeInfo } from "../services/downloads.js";
 import { clearRequests, recentRequests } from "../services/request-log.js";
 import { buildSupportReport, supportReportFileName } from "../services/support.js";
 import { networkInfo } from "../services/network.js";
@@ -1093,6 +1094,14 @@ export function createApiRouter(db) {
     } catch (error) {
       next(error);
     }
+  });
+
+  // WesPro.exe на раздаче: клуб в сети скачивает его из «Настроек», чтобы
+  // поставить программу у себя. Раздаёт только сервер сети (/download/…);
+  // программа у клуба — тем более exe — его не предлагает.
+  router.get("/exe", (req, res) => {
+    requirePermission(db, req, "manage_settings");
+    res.json({ exe: networkMode() ? exeInfo() : null });
   });
 
   // Синхронизация с сетью WesPro (клуб у себя, exe): когда были на связи,

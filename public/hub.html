@@ -175,6 +175,22 @@
         </div>
       </div>
       <div class="hub-panel">
+        <h2>WesPro.exe для клубов <small>программа для компьютера клуба</small></h2>
+        <p class="hint">
+          Соберите exe на Windows командой <b>npm run build:exe</b> и загрузите
+          сюда — клубы скачают его из своих «Настроек» (кнопка «Скачать
+          WesPro.exe»). Файл около 90 МБ: внутри сам Node.
+        </p>
+        <div id="exe-current" class="hint"></div>
+        <div class="settings-actions">
+          <label class="btn-file primary">
+            <input id="exe-file" type="file" accept=".exe" hidden>
+            <i class="ic ic-download"></i>Загрузить WesPro.exe
+          </label>
+          <span id="exe-upload-status" class="hint"></span>
+        </div>
+      </div>
+      <div class="hub-panel">
         <h2>Новшества по сети <small>обновление раскатывается по клубам</small></h2>
         <p class="hint">
           Код у всех клубов один, а что клуб видит — решает набор включённых

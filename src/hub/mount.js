@@ -13,6 +13,7 @@ import { createAccountRouter } from "./account-routes.js";
 import { accountTokenFromCookie, clubByToken } from "./account.js";
 import { hubTokenFromCookie, hubUserByToken } from "./auth.js";
 import { createHubRouter } from "./routes.js";
+import { EXE_NAME, exeInfo, exePath } from "../services/downloads.js";
 
 /**
  * @param {import("express").Express} app
@@ -25,8 +26,18 @@ export function mountHubAndAccount(app, hubDb, options = {}) {
   const accountOptions = options;
   // Свой разбор тела: в сети общее приложение не парсит JSON глобально —
   // загрузка резервной копии клуба приходит сырым файлом.
-  // Снимок базы офлайн-клуба — сырой файл в теле запроса, до JSON-парсера.
+  // Снимок базы офлайн-клуба и WesPro.exe — сырые файлы в теле запроса,
+  // до JSON-парсера.
   app.use("/hub/api/agent/snapshot", express.raw({ type: () => true, limit: "256mb" }));
+  app.use("/hub/api/exe", express.raw({ type: () => true, limit: "300mb" }));
+
+  // Скачивание WesPro.exe клубами: без входа — это сама программа, а не
+  // данные; чтобы синхронизироваться, клубу всё равно нужен свой ключ.
+  app.get("/download/WesPro.exe", (req, res) => {
+    const info = exeInfo();
+    if (!info) return res.status(404).send("WesPro.exe ещё не загружен в панель сети.");
+    res.download(exePath(), EXE_NAME);
+  });
   app.use("/hub", express.json({ limit: "1mb" }));
   app.use("/account", express.json({ limit: "1mb" }));
 

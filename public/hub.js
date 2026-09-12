@@ -1544,8 +1544,41 @@ async function renderNetworkFeatures() {
   }
 }
 
+/** Что сейчас на раздаче. */
+async function renderExeInfo() {
+  const box = document.getElementById("exe-current");
+  const { exe } = await api("/hub/api/exe").catch(() => ({ exe: null }));
+  box.textContent = exe
+    ? `На раздаче: версия ${exe.version}, ${(exe.size / 1024 / 1024).toFixed(0)} МБ, загружен ${dateTime(exe.uploaded_at)} (${exe.by}).`
+    : "Ещё не загружен — у клубов кнопки скачивания нет.";
+}
+
+async function uploadExe(file) {
+  const current = await api("/hub/api/features").then((d) => d.current_version).catch(() => "");
+  const version = window.prompt("Версия программы в этом exe (как в package.json):", current);
+  if (version === null) return;
+  const status = document.getElementById("exe-upload-status");
+  status.textContent = `Загружаем ${file.name} (${(file.size / 1024 / 1024).toFixed(0)} МБ)…`;
+  try {
+    const response = await fetch("/hub/api/exe", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", "X-Version": version.trim() },
+      body: file,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail ?? `Ошибка ${response.status}`);
+    status.textContent = "";
+    showToast("WesPro.exe загружен — клубы могут скачивать", true);
+    await renderExeInfo();
+  } catch (error) {
+    status.textContent = "";
+    showToast(error.message);
+  }
+}
+
 async function loadSettings() {
   await renderNetworkFeatures();
+  await renderExeInfo();
   const data = await api("/hub/api/settings");
   state.settings = data.settings;
   const form = document.getElementById("settings-form");
@@ -1712,6 +1745,11 @@ async function switchTab(tab) {
     if (["clubs", "overview", "club"].includes(state.tab)) refreshCurrentTab();
   }, 30000);
   document.getElementById("club-back").addEventListener("click", () => switchTab("clubs"));
+  document.getElementById("exe-file").addEventListener("change", (event) => {
+    const [file] = event.target.files;
+    if (file) uploadExe(file);
+    event.target.value = "";
+  });
   document.getElementById("journal-event").addEventListener("change", () => loadJournal());
   document.getElementById("settings-save").addEventListener(
     "click",

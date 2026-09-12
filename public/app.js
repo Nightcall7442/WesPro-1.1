@@ -6477,6 +6477,7 @@ async function refreshSettings() {
   document.getElementById("set-sub-url").value = settings.wespro_hub_url;
   document.getElementById("set-sub-key").value = settings.wespro_club_key;
   refreshSyncStatus().catch(() => {});
+  refreshExeCard().catch(() => {});
   renderSubscriptionStatus(settings.wespro_club_key);
   await renderDemoStatus().catch(() => {});
   await renderNetworkList().catch(() => {}); // сеть — справка, без неё можно
@@ -7084,6 +7085,21 @@ function renderSyncStatus(status) {
         (status.pending ? " · есть несинхронизированное" : " · всё синхронизировано")
     )
   );
+}
+
+/** Карточка «скачать WesPro.exe» — только если exe загружен в сеть. */
+async function refreshExeCard() {
+  const card = document.getElementById("exe-card");
+  if (!card || !state.ownerLevel) return;
+  try {
+    const { exe } = await api("/api/exe");
+    card.hidden = !exe;
+    if (!exe) return;
+    document.getElementById("exe-info").textContent =
+      `версия ${exe.version} · ${(exe.size / 1024 / 1024).toFixed(0)} МБ · загружен ${formatDateTime(exe.uploaded_at)}`;
+  } catch {
+    card.hidden = true;
+  }
 }
 
 async function refreshSyncStatus() {
