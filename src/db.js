@@ -502,6 +502,9 @@ export function createDatabase(filePath = DATABASE_PATH) {
   ensureColumn(db, "tables", "net_mac", "net_mac TEXT");
   ensureColumn(db, "devices", "net_ip", "net_ip TEXT");
   ensureColumn(db, "devices", "net_mac", "net_mac TEXT");
+  // Когда сессия последний раз что-то запрашивала: по ней видно, что
+  // разработчик поддержки сейчас в программе.
+  ensureColumn(db, "auth_sessions", "last_seen_at", "last_seen_at TEXT");
   stampSchemaVersion(db);
   return db;
 }

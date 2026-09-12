@@ -563,7 +563,7 @@ function buildClubTile(club) {
   if (club.plan_name) tags.append(el("span", "club-tag", club.plan_name));
   if (live?.version) {
     const v = live.version;
-    const tag = el("span", `club-tag ${v.current ? "ok" : "warn"}`, `версия ${v.version}${v.partial ? "+" : ""}`);
+    const tag = el("span", `club-tag ${v.current ? "ok" : "warn"}`, `версия ${v.version}`);
     tag.title = v.current ? "Текущая версия" : "Клуб на прежней версии — обновления на его странице";
     tags.append(tag);
   } else if (club.app_version) {
@@ -755,7 +755,8 @@ async function loadClubPage() {
   const actions = document.getElementById("club-page-actions");
   actions.replaceChildren();
   if (program) {
-    const open = el("a", "primary btn-link", "Открыть программу");
+    const open = el("a", "primary btn-link", "Войти разработчиком");
+    open.title = "Вход в программу клуба своим аккаунтом поддержки; клуб увидит предупреждение";
     open.href = `/hub/api/clubs/${id}/program/open`;
     open.target = "_blank";
     open.rel = "noopener";
@@ -895,7 +896,7 @@ async function buildUpdatesTab(clubId) {
   const current = el("div");
   current.append(
     el("span", "hint", "Версия клуба: "),
-    el("b", "version-now", `${version.version}${version.current ? " (текущая)" : ""}${version.partial ? " + часть новшеств" : ""}`)
+    el("b", "version-now", `${version.version}${version.current ? " (текущая)" : ""}`)
   );
   const select = document.createElement("select");
   for (const step of versions) {

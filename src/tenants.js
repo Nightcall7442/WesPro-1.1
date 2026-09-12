@@ -12,6 +12,7 @@
 // параметром, а createApp() и раньше был фабрикой. Мультиарендность
 // добавлена снаружи, а не размазана по коду.
 
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -22,7 +23,10 @@ import { hubSettings } from "./hub/db.js";
 import { seedNetworkClub } from "./seed.js";
 import { startDeviceCycles } from "./services/devices.js";
 import { initLighting } from "./services/lighting.js";
+import { SUPPORT_LOGIN_PREFIX } from "./services/auth.js";
+import { JournalEvent, logEvent } from "./services/journal.js";
 import { saveSettings } from "./services/settings.js";
+import { createUser } from "./services/users.js";
 
 /**
  * Реестр клубов сети: по карточке клуба выдаёт его базу и приложение,
@@ -136,6 +140,39 @@ export function createTenants(hubDb, { dir = CLUBS_DIR } = {}) {
           .prepare("SELECT * FROM users WHERE login = ? COLLATE NOCASE AND is_active = 1")
           .get(email) ?? null
       );
+    },
+
+    /**
+     * Аккаунт разработчика поддержки в программе клуба — для входа из
+     * панели сети. У каждого сотрудника панели свой: support:<логин>,
+     * роль «разработчик» (полный доступ, в обход прав), пароля никто не
+     * знает — вход только сессией из панели. Вход пишется в журнал клуба,
+     * а пока сессия жива, клуб видит предупреждение в шапке.
+     * @param {{id: number}} club
+     * @param {{login: string, name: string}} hubUser
+     */
+    supportUser(club, hubUser) {
+      const { db } = this.for(club);
+      const login = `${SUPPORT_LOGIN_PREFIX}${hubUser.login}`;
+      const name = `Поддержка WesPro — ${hubUser.name}`;
+      let user = db.prepare("SELECT * FROM users WHERE login = ? COLLATE NOCASE").get(login);
+      if (user) {
+        if (!user.is_active || user.name !== name) {
+          db.prepare("UPDATE users SET is_active = 1, name = ? WHERE id = ?").run(name, user.id);
+        }
+      } else {
+        user = createUser(
+          db,
+          { login, name, password: randomBytes(18).toString("hex"), role: "developer" },
+          { id: 0, name: "Панель сети", role: "developer" }
+        );
+      }
+      logEvent(
+        db,
+        JournalEvent.SUPPORT_LOGIN,
+        `В программу вошёл разработчик поддержки WesPro — ${hubUser.name}`
+      );
+      return user;
     },
 
     /**

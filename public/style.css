@@ -392,6 +392,29 @@ html.no-motion *, html.no-motion *::before, html.no-motion *::after {
   .t-sec.tick, .bump, .skeleton { animation: none; }
 }
 
+/* Разработчик поддержки в программе: предупреждение в шапке. */
+.support-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(207, 74, 65, 0.55);
+  background: rgba(207, 74, 65, 0.10);
+  color: var(--red);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.support-badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: link-blink 1.2s ease-in-out infinite;
+}
+
 /* Полоска устройств в шапке зала. */
 .devices-strip { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .device-dot {

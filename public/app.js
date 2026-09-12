@@ -2747,6 +2747,27 @@ async function refreshShift() {
   renderShiftBar();
 }
 
+/**
+ * Разработчик поддержки в программе: красная плашка в шапке, пока он
+ * внутри, и сообщение в момент входа.
+ */
+function renderSupportBadge(developer) {
+  const badge = document.getElementById("support-badge");
+  const was = state.supportDeveloper?.name ?? null;
+  state.supportDeveloper = developer;
+  badge.hidden = !developer;
+  if (!developer) return;
+  badge.textContent = `Разработчик в программе: ${developer.name.replace(/^Поддержка WesPro — /, "")}`;
+  badge.title = `Поддержка WesPro вошла в программу ${new Date(developer.since).toLocaleString("ru-RU")}`;
+  // Не ошибка, а предупреждение: зелёный тост с текстом, без «упс».
+  if (!was) showToast(`Внимание: в программу вошёл разработчик поддержки WesPro — ${developer.name.replace(/^Поддержка WesPro — /, "")}`, true);
+}
+
+async function refreshSupportPresence() {
+  const { developer } = await api("/api/support/presence");
+  renderSupportBadge(developer);
+}
+
 /** Модальное окно с полем суммы наличных (открытие/закрытие смены). */
 function cashModal(title, hint, buttonLabel, onSubmit, { summaryNode = null } = {}) {
   const body = document.createElement("div");
@@ -3066,6 +3087,7 @@ const EVENT_LABELS = {
   device_off: "Устройство выключено",
   device_cycle: "Цикл устройства",
   device_position: "Положение решётки",
+  support_login: "Вход поддержки",
   shift_opened: "Смена открыта",
   shift_closed: "Смена закрыта",
   user_created: "Создан сотрудник",
@@ -7570,6 +7592,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.permissions = me.permissions ?? {};
     state.features = me.features ?? {};
     state.me = me;
+    renderSupportBadge(me.support ?? null);
     // Новшества, которые клубу выключены из панели сети: разделы прячем,
     // анимации глушим. Код общий — версия у каждого клуба своя.
     for (const node of document.querySelectorAll("[data-feature]")) {
@@ -7975,5 +7998,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (NO_POLL_TABS.has(activeTab)) return;
     TAB_LOADERS[activeTab]().catch(() => { /* сеть мигнула — следующий опрос */ });
     refreshShift().catch(() => {});
+    refreshSupportPresence().catch(() => {});
   }, POLL_MS);
 });

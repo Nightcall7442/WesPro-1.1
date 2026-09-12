@@ -8,6 +8,7 @@ import {
   createAuthSession,
   deleteAuthSession,
   sessionCookie,
+  supportPresence,
 } from "../services/auth.js";
 import { kopecksToRubles } from "../services/billing.js";
 import { ConflictError, ForbiddenError } from "../services/errors.js";
@@ -299,6 +300,8 @@ export function createApiRouter(db) {
       permissions: permissionsForUser(db, req.user),
       // Что из новшеств включено этому клубу — интерфейс прячет остальное.
       features: enabledFeatures(db),
+      // Разработчик поддержки сейчас в программе — предупреждение в шапке.
+      support: supportPresence(db),
       // Кому показывать владельческие блоки: редактор прав, роли
       // «Владелец»/«Разработчик», загрузку базы из копии.
       owner_level: ownerLevelAllowed(db, req.user),
@@ -1089,6 +1092,11 @@ export function createApiRouter(db) {
     } catch (error) {
       next(error);
     }
+  });
+
+  // Разработчик поддержки в программе? Опрашивается вместе со сменой.
+  router.get("/support/presence", (req, res) => {
+    res.json({ developer: supportPresence(db) });
   });
 
   // --- Устройства зала: кондиционер, вытяжка, приток ----------------------

@@ -481,14 +481,28 @@ test("панель сети управляет программой клуба: 
   assert.equal(backup.status, 200);
   assert.match(backup.headers["content-disposition"], /billiards-backup-/);
 
-  // Вход в программу клуба одним кликом — владельцем клуба, с записью в журнал сети.
+  // Вход в программу клуба одним кликом — разработчиком поддержки со своим
+  // аккаунтом; в журнале сети и клуба остаётся след, а клуб видит, что
+  // разработчик внутри.
+  assert.equal((await owner.get("/api/support/presence")).body.developer, null);
   const open = await boss.get(`${base}/open`).redirects(0);
   assert.equal(open.status, 302);
   const me = await boss.get("/api/auth/me");
   assert.equal(me.status, 200);
-  assert.equal(me.body.user.login, "tetris@example.com");
+  assert.equal(me.body.user.login, "support:boss");
+  assert.equal(me.body.user.role, "developer");
   const hubJournal = (await boss.get("/hub/api/journal")).body.entries;
   assert.ok(hubJournal.some((e) => e.event === "support_login" && /из панели сети/.test(e.message)));
+  const presence = (await owner.get("/api/support/presence")).body.developer;
+  assert.ok(presence, "клуб видит разработчика");
+  assert.match(presence.name, /Владелец сети/);
+  assert.ok((await owner.get("/api/auth/me")).body.support);
+  const clubJournal = (await boss.get(`${base}/journal`)).body;
+  assert.ok(clubJournal.some((e) => e.event === "support_login"));
+  // Повторный вход тем же сотрудником панели аккаунт не плодит.
+  await boss.get(`${base}/open`).redirects(0);
+  const supportAccounts = (await boss.get(`${base}/users`)).body.filter((u) => u.login.startsWith("support:"));
+  assert.equal(supportAccounts.length, 1);
 
   // Клуб без базы и чужой номер — 404, а не падение.
   assert.equal((await boss.get("/hub/api/clubs/999/program/live")).status, 404);

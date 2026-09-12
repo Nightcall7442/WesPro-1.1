@@ -110,12 +110,9 @@ export function createNetworkApp(hubDb, { tenants = createTenants(hubDb) } = {})
     tenantDb: (club) => tenants.peek(club)?.db ?? null,
     // Владелец сети заходит в клуб владельцем клуба: те же cookie, что
     // ставит кабинет, — клуб выбран, сессия открыта.
-    openClubProgram: (club, res) => {
-      const owner = tenants.ownerUser(club);
-      if (!owner) {
-        return res.status(409).json({ detail: "У клуба нет владельца в программе" });
-      }
-      const token = createAuthSession(tenants.for(club).db, owner.id);
+    openClubProgram: (club, hubUser, res) => {
+      const developer = tenants.supportUser(club, hubUser);
+      const token = createAuthSession(tenants.for(club).db, developer.id);
       res.setHeader("Set-Cookie", [tenantCookie(club.code), sessionCookie(token)]);
       res.redirect("/");
     },

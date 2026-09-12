@@ -70,7 +70,7 @@ function intParam(value) {
  * @param {{
  *   liveStats?: (clubs: Array<{id: number}>) => Record<number, object|null>,
  *   tenantDb?: (club: {id: number}) => import("node:sqlite").DatabaseSync | null,
- *   openClubProgram?: (club: object, res: import("express").Response) => void,
+ *   openClubProgram?: (club: object, hubUser: object, res: import("express").Response) => void,
  * }} [options] хуки сети клубов: живое состояние, база клуба по карточке,
  *   вход в программу клуба владельцем — у одиночной установки их нет
  */
@@ -395,8 +395,9 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
     });
   });
 
-  // Вход в программу клуба в один клик — владельцем клуба. Попадает в
-  // журнал сети: постоянного тихого доступа в чужой клуб нет ни у кого.
+  // Вход в программу клуба в один клик — разработчиком поддержки (свой
+  // аккаунт у каждого сотрудника панели). Попадает в журнал сети и в
+  // журнал клуба, а клуб видит предупреждение, пока разработчик внутри.
   program.get("/open", (req, res) => {
     if (!openClubProgram) return res.status(404).json({ detail: "Доступно только в сети клубов" });
     logHubEvent(
@@ -405,7 +406,7 @@ export function createHubRouter(hubDb, { liveStats = null, tenantDb = null, open
       `Вход в программу «${req.club.name}» из панели сети — ${req.hubUser.name}`,
       req.club.id
     );
-    openClubProgram(req.club, res);
+    openClubProgram(req.club, req.hubUser, res);
   });
 
   router.use("/api/clubs/:id/program", program);
