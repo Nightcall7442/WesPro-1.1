@@ -93,6 +93,18 @@ export function createTenants(hubDb, { dir = CLUBS_DIR } = {}) {
     },
 
     /**
+     * Клуб, у которого база уже заведена, — открытой или с диска; null,
+     * если её ещё нет. В отличие от for(), базу не заводит: панели сети
+     * нечего показать по клубу, который ни разу не открывал программу.
+     * @param {{id: number}} club
+     */
+    peek(club) {
+      if (opened.has(club.id)) return opened.get(club.id);
+      const file = path.join(dir, String(club.id), "billiards.db");
+      return fs.existsSync(file) ? this.for(club) : null;
+    },
+
+    /**
      * Открывает базы уже заведённых клубов. Нужно при запуске сервера:
      * цикл устройств зала должен идти и без единого запроса от клуба.
      * Папки без базы (брошенные регистрации) не трогаем.

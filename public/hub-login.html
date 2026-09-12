@@ -8,9 +8,13 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
     onload="this.onload=null;this.rel='stylesheet'">
   <script>
-    // Панель сети — всегда тёмная: это рабочее место владельца сервиса,
-    // а не зал клуба, и путать её с интерфейсом клуба не надо.
-    document.documentElement.dataset.theme = "dark";
+    // Тема — та же, что у программы клуба (общий ключ billiards_theme).
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("billiards_theme") === "dark" ? "dark" : "light";
+    } catch (e) {
+      document.documentElement.dataset.theme = "light";
+    }
   </script>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">

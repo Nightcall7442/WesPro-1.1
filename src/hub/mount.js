@@ -17,9 +17,12 @@ import { createHubRouter } from "./routes.js";
 /**
  * @param {import("express").Express} app
  * @param {import("node:sqlite").DatabaseSync} hubDb
- * @param {Parameters<typeof createAccountRouter>[1]} [accountOptions]
+ * @param {Parameters<typeof createAccountRouter>[1] &
+ *   Parameters<typeof createHubRouter>[1]} [options] хуки сетевого режима:
+ *   кабинет — открыть программу, панель — живое состояние клубов
  */
-export function mountHubAndAccount(app, hubDb, accountOptions = {}) {
+export function mountHubAndAccount(app, hubDb, options = {}) {
+  const accountOptions = options;
   // Свой разбор тела: в сети общее приложение не парсит JSON глобально —
   // загрузка резервной копии клуба приходит сырым файлом.
   app.use("/hub", express.json({ limit: "1mb" }));
@@ -41,7 +44,7 @@ export function mountHubAndAccount(app, hubDb, accountOptions = {}) {
     if (req.hubUser) return res.redirect("/hub");
     res.sendFile(path.join(PUBLIC_DIR, "hub-login.html"));
   });
-  app.use("/hub", createHubRouter(hubDb));
+  app.use("/hub", createHubRouter(hubDb, { liveStats: options.liveStats }));
 
   // --- Личный кабинет владельца клуба ---------------------------------------
   // Тоже своя cookie (Path=/account), поэтому и вход, и API — на своём

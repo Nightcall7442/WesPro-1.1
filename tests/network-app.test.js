@@ -403,3 +403,37 @@ test("у каждого клуба свой файл базы", async (t) => {
     );
   }
 });
+
+test("панель сети видит, что происходит в клубах прямо сейчас", async (t) => {
+  const { app, hubDb } = makeNetwork(t);
+  const { createHubUser } = await import("../src/hub/auth.js");
+  createHubUser(hubDb, { login: "boss", name: "Владелец сети", password: "boss12345" });
+  const owner = await registerAndOpen(app, { name: "Тетрис", email: "tetris@example.com" });
+  await registerAndOpen(app, { name: "Тихий", email: "quiet@example.com" });
+
+  // В «Тетрисе» открыли смену и первый из заведённых при регистрации столов.
+  const tables = (await owner.get("/api/tables")).body;
+  const tariff = await owner.post("/api/tariffs").send({ name: "Дневной", price_per_hour: 400 });
+  assert.equal((await owner.post("/api/shifts/open").send({})).status, 201);
+  assert.equal(
+    (await owner.post(`/api/tables/${tables[0].id}/open`).send({ tariff_id: tariff.body.id })).status,
+    201
+  );
+
+  const boss = supertest.agent(app);
+  assert.equal(
+    (await boss.post("/hub/api/auth/login").send({ login: "boss", password: "boss12345" })).status,
+    200
+  );
+  const clubs = (await boss.get("/hub/api/clubs?status=all")).body;
+  const live = (await boss.get("/hub/api/live")).body;
+  const tetris = live[clubs.find((c) => c.name === "Тетрис").id];
+  assert.equal(tetris.tables_total, tables.length);
+  assert.equal(tetris.tables_busy, 1);
+  assert.equal(tetris.shift.cashier, "Иван Иванов");
+  assert.equal(tetris.revenue_today, 0);
+  assert.equal(tetris.relays_total, 0);
+  const quiet = live[clubs.find((c) => c.name === "Тихий").id];
+  assert.equal(quiet.tables_busy, 0);
+  assert.equal(quiet.shift, null);
+});

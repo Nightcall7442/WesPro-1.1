@@ -58,8 +58,10 @@ function intParam(value) {
 /**
  * Роутер панели.
  * @param {import("node:sqlite").DatabaseSync} hubDb
+ * @param {{liveStats?: (clubs: Array<{id: number}>) => Record<number, object|null>}} [options]
+ *   liveStats — живое состояние клубов из их баз; есть только в сети клубов
  */
-export function createHubRouter(hubDb) {
+export function createHubRouter(hubDb, { liveStats = null } = {}) {
   const router = express.Router();
 
   // --- Программы клубов: отметка на связи ----------------------------------
@@ -156,6 +158,14 @@ export function createHubRouter(hubDb) {
       attention: attentionList(hubDb),
       settings: hubSettings(hubDb),
     });
+  });
+
+  // Что происходит в клубах прямо сейчас: столы, выручка за день, смена,
+  // молчащие реле — из баз клубов, без пингов. Пустой ответ — панель
+  // стоит у одиночного клуба, чужих баз у неё нет.
+  router.get("/api/live", (req, res) => {
+    if (!liveStats) return res.json({});
+    res.json(liveStats(listClubs(hubDb, { status: "all" })));
   });
 
   // --- Клубы ---------------------------------------------------------------

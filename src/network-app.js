@@ -20,7 +20,9 @@ import { landingAtRoot, PUBLIC_DIR } from "./config.js";
 import { clubByCode, clubByEmail, clubBySlug, statusFor } from "./hub/clubs.js";
 import { hubNumber } from "./hub/db.js";
 import { mountHubAndAccount } from "./hub/mount.js";
+import { clubLiveStats } from "./hub/live.js";
 import { createAuthSession, sessionCookie } from "./services/auth.js";
+import { currentVersion } from "./services/diagnostics.js";
 import { createTenants } from "./tenants.js";
 
 const TENANT_COOKIE = "wespro_club";
@@ -84,6 +86,27 @@ export function createNetworkApp(hubDb, { tenants = createTenants(hubDb) } = {})
 
   mountHubAndAccount(app, hubDb, {
     onPasswordChanged: (clubId) => tenants.syncOwnerPassword(clubId),
+    // Панель сети смотрит в базы клубов напрямую: клуб, который ещё не
+    // открывал программу, базы не имеет — по нему null.
+    liveStats: (clubs) =>
+      Object.fromEntries(
+        clubs.map((club) => {
+          const tenant = tenants.peek(club);
+          if (!tenant) return [club.id, null];
+          const stats = clubLiveStats(tenant.db);
+          // В сети клуб не «отмечается» пингом — программа общая. Его
+          // связь — это его же работа: последняя запись в журнале клуба
+          // и есть «был на связи», а версия у всех одна, серверная.
+          if (stats.last_activity_at && stats.last_activity_at > (club.last_seen_at ?? "")) {
+            hubDb
+              .prepare(
+                "UPDATE clubs SET last_seen_at = ?, app_version = ?, tables_count = ? WHERE id = ?"
+              )
+              .run(stats.last_activity_at, currentVersion(), stats.tables_total, club.id);
+          }
+          return [club.id, stats];
+        })
+      ),
     // Из кабинета — сразу в программу: владелец уже доказал, кто он,
     // второй раз спрашивать тот же пароль незачем.
     openProgram: (req, res) => {

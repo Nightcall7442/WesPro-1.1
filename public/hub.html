@@ -7,24 +7,54 @@
   <link rel="preload" as="style"
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
     onload="this.onload=null;this.rel='stylesheet'">
-  <script>document.documentElement.dataset.theme = "dark";</script>
+  <script>
+    // Тема — та же, что в программе клуба: светлая «сталь», тёмная по
+    // выбору (общий ключ billiards_theme). Раньше панель была всегда
+    // тёмной, «чтобы не путать с кассой» — но тем, кто работает и там,
+    // и тут, единый вид оказался важнее.
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("billiards_theme") === "dark" ? "dark" : "light";
+    } catch (e) {
+      document.documentElement.dataset.theme = "light";
+    }
+  </script>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/hub.css">
 </head>
 <body class="hub">
-  <header class="hub-top">
+  <div class="layout">
+  <aside class="sidebar hub-sidebar">
     <div class="hub-brand">WesPro <span>сеть клубов</span></div>
-    <nav class="hub-tabs" id="hub-tabs">
-      <button class="hub-tab" data-tab="overview">Сводка</button>
-      <button class="hub-tab" data-tab="clubs">Клубы</button>
-      <button class="hub-tab" data-tab="plans">Тарифы</button>
-      <button class="hub-tab" data-tab="messages">Сообщения</button>
-      <button class="hub-tab" data-tab="journal">Журнал сети</button>
-      <button class="hub-tab" data-tab="settings">Настройки</button>
+    <nav class="side-nav" id="hub-tabs">
+      <button class="hub-tab nav-item" data-tab="overview" title="Сводка">
+        <span class="nav-icon"><i class="ic ic-chart"></i></span><span class="nav-label">Сводка</span>
+      </button>
+      <button class="hub-tab nav-item" data-tab="clubs" title="Клубы">
+        <span class="nav-icon"><i class="ic ic-ball"></i></span><span class="nav-label">Клубы</span>
+      </button>
+      <button class="hub-tab nav-item" data-tab="plans" title="Тарифы">
+        <span class="nav-icon"><i class="ic ic-tag"></i></span><span class="nav-label">Тарифы</span>
+      </button>
+      <button class="hub-tab nav-item" data-tab="messages" title="Сообщения">
+        <span class="nav-icon"><i class="ic ic-doc"></i></span><span class="nav-label">Сообщения</span>
+      </button>
+      <button class="hub-tab nav-item" data-tab="journal" title="Журнал сети">
+        <span class="nav-icon"><i class="ic ic-list"></i></span><span class="nav-label">Журнал сети</span>
+      </button>
+      <button class="hub-tab nav-item" data-tab="settings" title="Настройки">
+        <span class="nav-icon"><i class="ic ic-sliders"></i></span><span class="nav-label">Настройки</span>
+      </button>
     </nav>
-    <div class="hub-user">
-      <span id="hub-user-name"></span>
+  </aside>
+
+  <div class="content">
+  <header class="topbar">
+    <h1 id="hub-page-title">Сводка</h1>
+    <div class="user-area">
+      <button id="theme-toggle" class="mini" title="Тёмная/светлая тема"><i class="ic ic-theme"></i></button>
+      <span id="hub-user-name" class="user-chip"></span>
       <button class="mini" id="hub-logout">Выйти</button>
     </div>
   </header>
@@ -45,21 +75,24 @@
       </div>
     </section>
 
-    <!-- Клубы -->
+    <!-- Клубы: плитки. На каждой — что в клубе прямо сейчас (из его
+         базы) и подписка; проблемные всплывают первыми. -->
     <section class="hub-page" data-page="clubs" hidden>
       <div class="hub-toolbar">
         <input id="clubs-search" class="cash-input" type="search" placeholder="Поиск: название, город, телефон">
-        <select id="clubs-status">
-          <option value="all">Все статусы</option>
-          <option value="trial">Пробный период</option>
-          <option value="active">Активные</option>
-          <option value="overdue">Просроченные</option>
-          <option value="blocked">Заблокированные</option>
-          <option value="archived">В архиве</option>
-        </select>
+        <div class="chips" id="clubs-filters">
+          <button class="chip on" data-filter="all">Все</button>
+          <button class="chip" data-filter="online">На связи</button>
+          <button class="chip" data-filter="problems">Проблемы</button>
+          <button class="chip" data-filter="trial">Пробный</button>
+          <button class="chip" data-filter="overdue">Просрочены</button>
+          <button class="chip" data-filter="blocked">Заблокированы</button>
+          <button class="chip" data-filter="archived">Архив</button>
+        </div>
         <button class="primary" id="club-add">Добавить клуб</button>
       </div>
-      <table class="hub-table" id="clubs-table"></table>
+      <div class="club-grid" id="clubs-grid"></div>
+      <p class="hub-empty" id="clubs-empty" hidden></p>
     </section>
 
     <!-- Тарифы -->
@@ -102,6 +135,8 @@
       </div>
     </section>
   </main>
+  </div>
+  </div>
 
   <div id="hub-modal-overlay" class="modal-overlay" hidden>
     <div class="modal" id="hub-modal">

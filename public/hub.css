@@ -1,27 +1,96 @@
-/* Панель сети клубов. Своя вёрстка поверх общих стилей: у клуба —
-   карта зала со столами, здесь — таблицы и цифры, и путать эти два
-   рабочих места нельзя. */
+/* Панель сети клубов. Тот же язык, что у программы клуба: светлая
+   «сталь», боковое меню, те же карточки и таблицы — только вместо
+   карты зала здесь плитки клубов, а вместо кассы — подписки. */
 
-body.hub {
-  min-height: 100vh;
+body.hub { min-height: 100vh; }
+
+/* Боковое меню: как в программе клуба, плюс шапка с названием сети. */
+.hub-sidebar { display: flex; flex-direction: column; gap: 8px; }
+.hub-sidebar .hub-brand { padding: 10px 12px 12px; }
+.hub-sidebar .hub-tab.on {
+  color: var(--accent-ink);
+  background: rgba(var(--accent-rgb), 0.15);
+  box-shadow: inset 2px 0 0 var(--blue);
+}
+.hub-sidebar .side-nav { flex: 1; }
+.topbar h1 { margin: 0; font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; }
+
+/* --- Плитки клубов --- */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  border: 0.5px solid var(--hairline);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: rgba(var(--ink), 0.06);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip:hover { color: var(--text); }
+.chip.on { background: var(--blue); color: var(--accent-fg); border-color: transparent; }
+
+.club-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+.club-tile {
+  background: var(--glass);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--glass-border);
+  border-top: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 16px 18px 14px;
   display: flex;
   flex-direction: column;
+  gap: 12px;
 }
+.club-tile.problem { border-color: rgba(207, 74, 65, 0.55); box-shadow: 0 0 0 1px rgba(207, 74, 65, 0.22), var(--shadow); }
+.club-tile.off { opacity: 0.6; }
+.club-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.club-name { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.01em; }
+.club-city { font-size: 0.8rem; color: var(--muted); font-weight: 500; margin-top: 2px; }
+.club-link {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 0.76rem; font-weight: 600;
+  border: 1px solid var(--hairline); color: var(--muted);
+  white-space: nowrap;
+}
+.club-link::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.club-link.ok { color: var(--green-text); border-color: rgba(28, 122, 79, 0.45); }
+.club-link.bad { color: var(--red); border-color: rgba(207, 74, 65, 0.45); }
+.club-link.bad::before { animation: link-blink 1.6s ease-in-out infinite; }
+.club-live { display: flex; gap: 16px; align-items: center; }
+.club-ring { width: 72px; height: 72px; position: relative; display: grid; place-items: center; flex: none; }
+.club-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.club-ring circle { fill: none; stroke-width: 7; }
+.club-ring .track { stroke: rgba(var(--ink), 0.12); }
+.club-ring .fill { stroke: var(--green-text); stroke-linecap: round; }
+.club-ring b { font-size: 0.9rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.club-money { font-size: 1.45rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.club-money-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-top: 3px; }
+.club-shift { font-size: 0.82rem; color: var(--muted); margin-top: 6px; }
+.club-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.club-tag { font-size: 0.76rem; padding: 4px 9px; border-radius: 8px; background: rgba(var(--ink), 0.07); color: var(--text); }
+.club-tag.warn { background: rgba(216, 172, 60, 0.18); color: var(--orange-text); }
+.club-tag.bad { background: rgba(207, 74, 65, 0.14); color: var(--red); }
+.club-tag.ok { background: rgba(28, 122, 79, 0.14); color: var(--green-text); }
+.club-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
+.club-none { font-size: 0.86rem; color: var(--muted); }
 
-.hub-top {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 12px 22px;
-  border-bottom: 1px solid var(--hairline);
-  background: var(--glass-strong);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  flex-wrap: wrap;
-}
+/* Значки статуса подписки — под светлую тему тоже. */
+html[data-theme="light"] .pill-trial { color: #2f5fa8; }
+html[data-theme="light"] .pill-overdue { color: #a86c12; }
+html[data-theme="light"] .attention-expiring { border-left-color: #2f5fa8; }
+html[data-theme="light"] .attention-overdue { border-left-color: #a86c12; }
+
+@keyframes link-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .club-link.bad::before { animation: none; } }
 
 .hub-brand {
   font-family: var(--font-display);
@@ -41,24 +110,7 @@ body.hub {
   color: var(--muted);
 }
 
-.hub-tabs { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
-.hub-tab {
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-weight: 600;
-  font-size: 0.92rem;
-  padding: 8px 14px;
-  border-radius: 12px;
-  cursor: pointer;
-}
-.hub-tab:hover { background: rgba(var(--accent-rgb), 0.1); color: var(--text); }
-.hub-tab.on { background: rgba(var(--accent-rgb), 0.18); color: var(--accent-ink); }
-
-.hub-user { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.9rem; }
-
-.hub-main { flex: 1; padding: 22px; max-width: 1400px; width: 100%; margin: 0 auto; }
+.hub-main { padding: 22px 24px 48px; max-width: 1400px; width: 100%; margin: 0 auto; }
 .hub-page { display: flex; flex-direction: column; gap: 18px; }
 
 /* --- Карточки-цифры на сводке --- */
@@ -197,9 +249,9 @@ body.hub {
 
 @media (max-width: 720px) {
   .hub-main { padding: 14px; }
-  .hub-top { padding: 10px 14px; }
   .hub-table { font-size: 0.86rem; }
   .hub-table th, .hub-table td { padding: 8px 6px; }
+  .club-grid { grid-template-columns: 1fr; }
 }
 
 /* Всплывающие сообщения — под шапкой: наверху они закрывали имя
