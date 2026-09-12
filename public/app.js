@@ -123,6 +123,45 @@ function formatMoney(rubles) {
   });
 }
 
+/**
+ * Живой счётчик: две последние цифры (секунды) «падают» на место при
+ * смене, остальное стоит на месте. Текст без цифр в конце («время
+ * вышло», «бронь 18:30») пишется как есть.
+ */
+function setLiveText(el, text) {
+  const match = /^(.*?)(\d\d)$/.exec(text);
+  if (!match) {
+    el.textContent = text;
+    return;
+  }
+  let main = el.querySelector(".t-main");
+  let sec = el.querySelector(".t-sec");
+  if (!main || !sec) {
+    el.textContent = "";
+    main = document.createElement("span");
+    main.className = "t-main";
+    sec = document.createElement("span");
+    sec.className = "t-sec";
+    el.append(main, sec);
+  }
+  if (main.textContent !== match[1]) main.textContent = match[1];
+  if (sec.textContent !== match[2]) {
+    sec.textContent = match[2];
+    sec.classList.remove("tick");
+    void sec.offsetWidth; // перезапуск анимации
+    sec.classList.add("tick");
+  }
+}
+
+/** Сумма подпрыгивает, когда набегает следующий рубль. */
+function setBumpText(el, text) {
+  if (el.textContent === text) return;
+  el.textContent = text;
+  el.classList.remove("bump");
+  void el.offsetWidth;
+  el.classList.add("bump");
+}
+
 function formatDateTime(iso) {
   return new Date(iso).toLocaleString("ru-RU", {
     day: "2-digit", month: "2-digit",
@@ -940,13 +979,15 @@ function renderMap() {
       const device = state.hallDevices.find((d) => d.id === el.device_id);
       const meta = DEVICE_TYPES[device?.type] ?? DEVICE_TYPES.exhaust;
       div.classList.toggle("on", Boolean(device?.is_on));
+      div.classList.toggle("err", Boolean(device && (device.relay_error || device.online === false)));
+      if (device) applyDamperAngle(div, device);
       const label = document.createElement("span");
       label.textContent = device
         ? device.type === "damper" && device.position
           ? `${device.name} ${device.position}%`
           : device.name
         : "удалено";
-      div.append(icon(meta.ic), label);
+      div.append(deviceIcon(device?.type ?? "exhaust"), label);
       div.title = device ? `${meta.label}: ${deviceStatusText(device, device.switches_in_seconds)}` : "";
       if (!state.editMode && device) {
         div.addEventListener("click", () => openDeviceControl(device));
@@ -1068,7 +1109,7 @@ function renderDevicePalette() {
     const btn = document.createElement("button");
     btn.className = "pal-tool";
     btn.dataset.tool = `device:${device.id}`;
-    btn.append(icon(meta.ic), device.name);
+    btn.append(deviceIcon(device.type), device.name);
     btn.title = meta.label;
     btn.addEventListener("click", () => setEditorTool(btn.dataset.tool));
     box.append(btn);
@@ -1471,18 +1512,18 @@ function updateTiles() {
     if (table.session.prepaid) {
       const remaining = remainingSeconds(table);
       if (remaining <= 0) {
-        sub.textContent = "время вышло";
+        setLiveText(sub, "время вышло");
         tile.classList.remove("prepaid", "ending");
         tile.classList.add("expired");
       } else {
-        sub.textContent = `-${formatDuration(remaining)}`;
+        setLiveText(sub, `-${formatDuration(remaining)}`);
         // Последние минуты — стол подсвечивается, чтобы кассир успел
         // подойти и предложить продление.
         const warnAfter = state.warnBeforeMinutes * 60;
         tile.classList.toggle("ending", warnAfter > 0 && remaining <= warnAfter);
       }
     } else {
-      sub.textContent = formatDuration(liveElapsedSeconds(table));
+      setLiveText(sub, formatDuration(liveElapsedSeconds(table)));
     }
   }
 }
@@ -1659,16 +1700,16 @@ function tick() {
         table.session.remaining_seconds -
         (performance.now() - state.fetchedAt) / 1000;
       if (remaining <= 0) {
-        timer.textContent = "ВРЕМЯ ВЫШЛО";
+        setLiveText(timer, "ВРЕМЯ ВЫШЛО");
         timer.classList.add("expired");
       } else {
-        timer.textContent = formatDuration(remaining);
+        setLiveText(timer, formatDuration(remaining));
         timer.classList.remove("expired");
       }
       continue;
     }
-    if (timer) timer.textContent = formatDuration(liveElapsedSeconds(table));
-    if (cost) cost.textContent = `${money(liveCost(table))}`;
+    if (timer) setLiveText(timer, formatDuration(liveElapsedSeconds(table)));
+    if (cost) setBumpText(cost, `${money(liveCost(table))}`);
   }
 }
 
@@ -1721,7 +1762,8 @@ function renderDevicesStrip(devices) {
       btn.title =
         `${device.name}: ${deviceStatusText(device, device.switches_in_seconds)}` +
         (device.online === false ? " · нет связи" : "");
-      btn.append(icon(meta.ic));
+      applyDamperAngle(btn, device);
+      btn.append(deviceIcon(device.type));
       if (device.type === "damper" && device.position && device.positions.length > 1) {
         btn.append(`${device.position}%`);
       }
@@ -1781,6 +1823,42 @@ const DEVICE_TYPES = {
   damper: { label: "Решётка канала", ic: "damper" },
 };
 
+// Те же контуры, что у иконок-масок в style.css, но живым SVG: у
+// работающей вытяжки крутятся лопасти, у кондиционера дышит поток, у
+// притока тянет стрелка, у решётки жалюзи поворачиваются в положение
+// (анимации — .dev-ic в style.css). Маской такое не нарисовать: она
+// одноцветная и цельная.
+const DEVICE_SVG = {
+  ac:
+    '<rect x="3" y="5.4" width="18" height="8.2" rx="2"/><path d="M6.4 9.6h11.2"/>' +
+    '<path class="wave" d="M6 17.2c1.5-1.4 3-1.4 4.5 0s3 1.4 4.5 0 3-1.4 4.5 0"/>',
+  exhaust:
+    '<circle cx="12" cy="12" r="8.6"/><g class="blades"><circle cx="12" cy="12" r="1.5"/>' +
+    '<path d="M12 10.5C12 7.1 13.2 5.1 15 5.1M13.3 12.8c3-1.7 5.2-1.6 6.1 0M10.7 12.8c-3 1.7-3.9 3.6-3 5.2"/></g>',
+  intake:
+    '<rect x="3.4" y="3.4" width="17.2" height="17.2" rx="2.4"/>' +
+    '<path class="flow" d="M12 7.4v8.4M8.6 12.4l3.4 3.4 3.4-3.4"/>',
+  damper:
+    '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2"/>' +
+    '<path class="slat" d="M5 8.2h14"/><path class="slat" d="M5 12h14"/><path class="slat" d="M5 15.8h14"/>',
+};
+
+/** Живая иконка устройства. Состояние задаёт родитель классом .on. */
+function deviceIcon(type) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "dev-ic");
+  svg.innerHTML = DEVICE_SVG[type] ?? DEVICE_SVG.exhaust;
+  return svg;
+}
+
+/** Жалюзи решётки — под углом, пропорциональным положению (0 % — закрыто). */
+function applyDamperAngle(el, device) {
+  if (device.type === "damper") {
+    el.style.setProperty("--slat", `${-Math.round((device.position ?? 0) * 0.85)}deg`);
+  }
+}
+
 /** «через 7 мин» / «через 40 с» — до смены фазы цикла. */
 function formatSwitchIn(seconds) {
   if (seconds >= 90) return `через ${Math.round(seconds / 60)} мин`;
@@ -1835,8 +1913,9 @@ function buildDeviceChip(device, afterAction = refreshDevicesTab) {
   chip.dataset.deviceId = device.id;
 
   const meta = DEVICE_TYPES[device.type] ?? DEVICE_TYPES.exhaust;
+  applyDamperAngle(chip, device);
   const name = document.createElement("b");
-  name.append(icon(meta.ic), ` ${device.name}`);
+  name.append(deviceIcon(device.type), ` ${device.name}`);
   name.title = meta.label;
 
   // Связь с реле: видно сразу, кто отвалился от сети.
@@ -7444,7 +7523,37 @@ function switchTab(name) {
   for (const panel of document.querySelectorAll(".tab-panel")) {
     panel.hidden = panel.id !== `tab-${name}`;
   }
-  TAB_LOADERS[name]().catch((error) => showToast(error.message));
+  showSkeletons(name);
+  TAB_LOADERS[name]()
+    .catch((error) => showToast(error.message))
+    .finally(() => clearSkeletons(name));
+}
+
+/**
+ * Пока вкладка грузится впервые, в пустых таблицах мерцают контуры
+ * строк — вместо голой шапки. Отрисовка заменяет их настоящими
+ * строками; что не заменила — убирается после загрузки.
+ */
+function showSkeletons(name) {
+  for (const body of document.querySelectorAll(`#tab-${name} tbody`)) {
+    if (body.children.length) continue;
+    for (let i = 0; i < 3; i += 1) {
+      const tr = document.createElement("tr");
+      tr.className = "skeleton-row";
+      const td = document.createElement("td");
+      td.colSpan = 12;
+      const bar = document.createElement("div");
+      bar.className = "skeleton";
+      bar.style.width = ["100%", "72%", "48%"][i];
+      td.append(bar);
+      tr.append(td);
+      body.append(tr);
+    }
+  }
+}
+
+function clearSkeletons(name) {
+  for (const row of document.querySelectorAll(`#tab-${name} .skeleton-row`)) row.remove();
 }
 
 // ---------------------------------------------------------------- init

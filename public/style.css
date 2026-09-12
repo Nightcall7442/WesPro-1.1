@@ -308,6 +308,84 @@ main { padding: 28px 24px 48px; max-width: 1100px; margin: 0 auto; }
 .dot-expired { background: var(--red); }
 .dot-booked { background: var(--orange-text); }
 
+/* --- Живые иконки устройств --- */
+.dev-ic {
+  width: 1.08em;
+  height: 1.08em;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -0.18em;
+}
+.device-dot .dev-ic, .plan-el.device .dev-ic { width: 15px; height: 15px; }
+.device-chip .dev-ic { width: 16px; height: 16px; vertical-align: -3px; }
+.pal-tool .dev-ic { width: 16px; height: 16px; }
+/* Вытяжка: лопасти крутятся, пока работает. */
+.dev-ic .blades { transform-origin: 12px 12px; }
+.on .dev-ic .blades { animation: dev-spin 1.1s linear infinite; }
+@keyframes dev-spin { to { transform: rotate(360deg); } }
+/* Кондиционер: поток «дышит». */
+.on .dev-ic .wave { animation: dev-breathe 1.8s ease-in-out infinite; }
+@keyframes dev-breathe {
+  0%, 100% { transform: translateY(0); opacity: 0.55; }
+  50% { transform: translateY(2px); opacity: 1; }
+}
+/* Приток: стрелка тянет воздух внутрь. */
+.on .dev-ic .flow { animation: dev-flow 1.6s ease-in-out infinite; }
+@keyframes dev-flow {
+  0%, 100% { transform: translateY(-1.5px); opacity: 0.6; }
+  50% { transform: translateY(1.5px); opacity: 1; }
+}
+/* Решётка: жалюзи поворачиваются в положение (--slat ставит скрипт). */
+.dev-ic .slat {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(var(--slat, 0deg));
+  transition: transform 420ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Нет связи: мигающая точка — заметно среди других иконок и подписей. */
+.device-dot.err::before,
+.device-link.bad::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 4px;
+  animation: link-blink 1.6s ease-in-out infinite;
+}
+.device-link.bad::before { vertical-align: 1px; }
+.plan-el.device.err { box-shadow: inset 0 0 0 1.5px var(--red); color: var(--red); }
+@keyframes link-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* Живой счётчик на плитке: секунды «падают» на место, сумма подпрыгивает. */
+.t-sec { display: inline-block; }
+.t-sec.tick { animation: sec-tick 240ms ease-out; }
+@keyframes sec-tick { from { transform: translateY(4px); opacity: 0.2; } to { transform: none; opacity: 1; } }
+.bump { animation: cost-bump 380ms ease-out; }
+@keyframes cost-bump { 30% { transform: translateY(-3px); } }
+
+/* Загрузка вкладки: контуры строк мерцают, пока идёт ответ. */
+.skeleton {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(var(--ink), 0.08) 25%, rgba(var(--ink), 0.16) 50%, rgba(var(--ink), 0.08) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .on .dev-ic .blades, .on .dev-ic .wave, .on .dev-ic .flow,
+  .device-dot.err::before, .device-link.bad::before,
+  .t-sec.tick, .bump, .skeleton { animation: none; }
+}
+
 /* Полоска устройств в шапке зала. */
 .devices-strip { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .device-dot {
