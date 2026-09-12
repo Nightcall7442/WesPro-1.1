@@ -10,6 +10,8 @@
 // в базе и настраивается во вкладке «Настройки», без правки кода.
 
 export const DEFAULT_SWITCH_CODE = "switch_1";
+/** Код положения у приводов Tuya (заслонки, шторы, клапаны): 0–100 %. */
+export const POSITION_CODE = "percent_control";
 
 /**
  * @typedef {Object} TuyaDevice
@@ -59,6 +61,30 @@ export class TuyaLightingController {
     }
     if (value) this.#on.add(tableId);
     else this.#on.delete(tableId);
+    return true;
+  }
+
+  /**
+   * Положение привода в процентах (решётка канала на моторе Tuya).
+   * Ждёт ответа, как и setLight: кассир должен видеть, приняла ли
+   * заслонка команду.
+   * @param {number} id @param {number} percent
+   */
+  async setPosition(id, percent) {
+    const device = this.#resolveDevice(id);
+    if (!device?.device_id) {
+      throw new Error("Устройство не привязано к приводу — выберите его в настройках");
+    }
+    const response = await this.#client.request({
+      method: "POST",
+      path: `/v1.0/iot-03/devices/${device.device_id}/commands`,
+      body: { commands: [{ code: POSITION_CODE, value: percent }] },
+    });
+    if (!response?.success) {
+      throw new Error(
+        `Привод не принял положение: ${response?.msg ?? response?.code ?? "нет ответа"}`
+      );
+    }
     return true;
   }
 

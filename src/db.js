@@ -125,7 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_bookings_time ON bookings (starts_at);
 
 CREATE TABLE IF NOT EXISTS plan_elements (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  type       TEXT NOT NULL CHECK (type IN ('wall', 'door', 'sofa', 'armchair', 'deco_table', 'tv')),
+  type       TEXT NOT NULL CHECK (type IN ('wall', 'door', 'sofa', 'armchair', 'deco_table', 'tv', 'device')),
   x          INTEGER NOT NULL,
   y          INTEGER NOT NULL,
   w          INTEGER NOT NULL CHECK (w > 0),
@@ -228,6 +228,9 @@ CREATE TABLE IF NOT EXISTS table_tariffs (
 CREATE TABLE IF NOT EXISTS devices (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   name             TEXT NOT NULL UNIQUE,
+  type             TEXT NOT NULL DEFAULT 'exhaust',
+  positions        TEXT NOT NULL DEFAULT '',
+  position         INTEGER NOT NULL DEFAULT 0,
   work_minutes     INTEGER NOT NULL DEFAULT 15 CHECK (work_minutes > 0),
   rest_minutes     INTEGER NOT NULL DEFAULT 30 CHECK (rest_minutes >= 0),
   cycle_on         INTEGER NOT NULL DEFAULT 0,
@@ -288,27 +291,30 @@ function migrateUserRoles(db) {
 
 /**
  * plan_elements создавалась с CHECK (type IN ('wall','door')) — до того как
- * в редактор зала добавили мебель (диван/кресло/стол/телевизор). Та же
- * пересборка таблицы, что и для ролей; на неё никто не ссылается, поэтому
- * без танцев с внешними ключами.
+ * в редактор зала добавили мебель (диван/кресло/стол/телевизор), а потом
+ * устройства зала ('device'). Та же пересборка таблицы, что и для ролей;
+ * на неё никто не ссылается, поэтому без танцев с внешними ключами.
+ * Колонка device_id добавляется отдельно, после (ensureColumn), поэтому
+ * здесь копируются только исходные семь колонок.
  */
 function migratePlanElementTypes(db) {
   const row = db
     .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='plan_elements'")
     .get();
-  if (!row || row.sql.includes("'sofa'")) return; // уже актуальная схема
+  if (!row || row.sql.includes("'device'")) return; // уже актуальная схема
   withTransaction(db, () => {
     db.exec(`
       CREATE TABLE plan_elements_new (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        type       TEXT NOT NULL CHECK (type IN ('wall', 'door', 'sofa', 'armchair', 'deco_table', 'tv')),
+        type       TEXT NOT NULL CHECK (type IN ('wall', 'door', 'sofa', 'armchair', 'deco_table', 'tv', 'device')),
         x          INTEGER NOT NULL,
         y          INTEGER NOT NULL,
         w          INTEGER NOT NULL CHECK (w > 0),
         h          INTEGER NOT NULL CHECK (h > 0),
         created_at TEXT NOT NULL
       );
-      INSERT INTO plan_elements_new SELECT * FROM plan_elements;
+      INSERT INTO plan_elements_new (id, type, x, y, w, h, created_at)
+        SELECT id, type, x, y, w, h, created_at FROM plan_elements;
       DROP TABLE plan_elements;
       ALTER TABLE plan_elements_new RENAME TO plan_elements;
     `);
@@ -323,7 +329,7 @@ function migratePlanElementTypes(db) {
  * Держится в самой базе (settings.schema_version) и показывается в
  * «Диагностике».
  */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /** Что появилось в каждой версии — для отчёта и для разбора жалоб. */
 export const SCHEMA_HISTORY = [
@@ -338,6 +344,7 @@ export const SCHEMA_HISTORY = [
   [9, "напоминания о бронях, вид чека, подарочные чеки"],
   [10, "реле по локальной сети: Tasmota, Shelly, свой адрес"],
   [11, "устройства зала по циклу: кондиционер, вытяжка, приток"],
+  [12, "решётки каналов с положениями, устройства на плане зала"],
 ];
 
 /** Записывает версию схемы в саму базу — после того как схема доросла. */
@@ -472,6 +479,19 @@ export function createDatabase(filePath = DATABASE_PATH) {
     "users",
     "revenue_percent",
     "revenue_percent INTEGER NOT NULL DEFAULT 0"
+  );
+  // Устройства зала: вид (кондиционер, вытяжка, приток, решётка канала),
+  // положения решётки («30,50,70») и текущее положение в процентах.
+  ensureColumn(db, "devices", "type", "type TEXT NOT NULL DEFAULT 'exhaust'");
+  ensureColumn(db, "devices", "positions", "positions TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "devices", "position", "position INTEGER NOT NULL DEFAULT 0");
+  // Устройство на плане зала — элемент плана со ссылкой на устройство;
+  // удалили устройство — исчезло и с плана.
+  ensureColumn(
+    db,
+    "plan_elements",
+    "device_id",
+    "device_id INTEGER REFERENCES devices (id) ON DELETE CASCADE"
   );
   stampSchemaVersion(db);
   return db;

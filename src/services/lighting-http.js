@@ -77,6 +77,28 @@ function tasmotaStateOf(data, channel) {
   return String(value).toUpperCase() === "ON";
 }
 
+/**
+ * Положение привода (заслонка, штора) в процентах. Tasmota — прошивка с
+ * шторами (ShutterPosition), Shelly — режим roller/cover, «своё
+ * устройство» — адрес включения с подстановкой {percent}.
+ */
+function positionUrl(device, percent) {
+  if (device.kind === "url") {
+    const template = String(device.on_url ?? "").trim();
+    if (!template.includes("{percent}")) {
+      throw new Error("В адресе включения нет {percent} — некуда подставить положение");
+    }
+    return template.replaceAll("{percent}", String(percent));
+  }
+  const host = normalizeHost(device.host);
+  if (!host) throw new Error("Не задан адрес устройства (IP в локальной сети)");
+  const n = Number(device.channel ?? 0);
+  if (device.kind === "tasmota") return `${host}/cm?cmnd=ShutterPosition${n + 1}%20${percent}`;
+  return (shellyGeneration.get(host) ?? 1) === 2
+    ? `${host}/rpc/Cover.GoToPosition?id=${n}&pos=${percent}`
+    : `${host}/roller/${n}?go=to_pos&roller_pos=${percent}`;
+}
+
 /** Shelly: у Gen1 и Gen2 разные адреса — пробуем то, что уже сработало. */
 function shellyUrls(host, channel, generation) {
   const id = Number(channel ?? 0);
@@ -163,6 +185,31 @@ export class HttpLightingController {
     }
     if (value) this.#on.add(tableId);
     else this.#on.delete(tableId);
+    return true;
+  }
+
+  /**
+   * Ставит привод в положение (проценты) и ждёт ответа.
+   * @param {number} id @param {number} percent
+   */
+  async setPosition(id, percent) {
+    const device = this.#resolveDevice(id);
+    if (!device) throw new Error("Устройство не привязано к приводу");
+    try {
+      await request(positionUrl(device, percent));
+    } catch (error) {
+      // Как и у выключателя: Shelly другого поколения — пробуем ещё раз.
+      if (device.kind !== "shelly") throw error;
+      const host = normalizeHost(device.host);
+      const other = (shellyGeneration.get(host) ?? 1) === 1 ? 2 : 1;
+      shellyGeneration.set(host, other);
+      try {
+        await request(positionUrl(device, percent));
+      } catch (retryError) {
+        shellyGeneration.delete(host);
+        throw retryError;
+      }
+    }
     return true;
   }
 

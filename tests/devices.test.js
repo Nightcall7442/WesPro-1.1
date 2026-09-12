@@ -96,3 +96,79 @@ test("тик приводит устройство к фазе цикла; ру�
   assert.equal(removed.status, 200);
   assert.equal((await admin.get("/api/devices")).body.length, 0);
 });
+
+test("решётка канала: положения 30/50/70, закрыть, у решётки с одним положением — реле", async () => {
+  const { db, app } = makeApp();
+  const admin = await adminAgent(app);
+
+  const bad = await admin
+    .post("/api/devices")
+    .send({ name: "Решётка", type: "damper", positions: "30,150" });
+  assert.equal(bad.status, 409);
+
+  const created = await admin
+    .post("/api/devices")
+    .send({ name: "Решётка 1", type: "damper", positions: "70, 30,50,30" });
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.body.positions, [30, 50, 70]); // отсортированы, без дублей
+  assert.equal(created.body.position, 0);
+  const id = created.body.id;
+
+  const half = await admin.post(`/api/devices/${id}/position`).send({ percent: 50 });
+  assert.equal(half.status, 200);
+  assert.equal(half.body.position, 50);
+  assert.equal(half.body.is_on, true);
+
+  const wrong = await admin.post(`/api/devices/${id}/position`).send({ percent: 40 });
+  assert.equal(wrong.status, 409);
+
+  // Цикла у решётки нет; «включить» — открыть до упора, «выключить» — закрыть.
+  assert.equal((await admin.post(`/api/devices/${id}/cycle`).send({ on: true })).status, 409);
+  const full = await admin.post(`/api/devices/${id}/power`).send({ on: true });
+  assert.equal(full.body.position, 70);
+  const closed = await admin.post(`/api/devices/${id}/position`).send({ percent: 0 });
+  assert.equal(closed.body.position, 0);
+  assert.equal(closed.body.is_on, false);
+
+  // Одно положение — обычная заслонка: открыто/закрыто.
+  const flap = await admin
+    .post("/api/devices")
+    .send({ name: "Заслонка", type: "damper", positions: "100" });
+  assert.deepEqual(flap.body.positions, [100]);
+  const open = await admin.post(`/api/devices/${flap.body.id}/position`).send({ percent: 100 });
+  assert.equal(open.body.is_on, true);
+  assert.equal(db.prepare("SELECT is_on FROM devices WHERE id = ?").get(flap.body.id).is_on, 1);
+
+  // Положение задаётся только решётке.
+  const fan = await admin.post("/api/devices").send({ name: "Вытяжка", type: "exhaust" });
+  assert.equal((await admin.post(`/api/devices/${fan.body.id}/position`).send({ percent: 50 })).status, 409);
+});
+
+test("устройство ставится на план зала и уходит с него вместе с устройством", async () => {
+  const { app } = makeApp();
+  const admin = await adminAgent(app);
+  const fan = await admin.post("/api/devices").send({ name: "Вытяжка", type: "exhaust" });
+
+  const ghost = await admin.put("/api/plan").send({
+    cols: 20,
+    rows: 10,
+    elements: [{ type: "device", device_id: 999, x: 1, y: 1, w: 2, h: 1 }],
+  });
+  assert.equal(ghost.status, 409);
+
+  const saved = await admin.put("/api/plan").send({
+    cols: 20,
+    rows: 10,
+    elements: [
+      { type: "wall", x: 0, y: 0, w: 20, h: 1 },
+      { type: "device", device_id: fan.body.id, x: 1, y: 1, w: 2, h: 1 },
+    ],
+  });
+  assert.equal(saved.status, 200);
+  const placed = saved.body.elements.find((e) => e.type === "device");
+  assert.equal(placed.device_id, fan.body.id);
+
+  await admin.delete(`/api/devices/${fan.body.id}`);
+  const after = await admin.get("/api/plan");
+  assert.deepEqual(after.body.elements.map((e) => e.type), ["wall"]);
+});

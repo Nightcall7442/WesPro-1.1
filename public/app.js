@@ -928,7 +928,7 @@ function renderMap() {
   const ids = new Set(state.tables.map((t) => t.id));
   for (const id of [...state.selected]) if (!ids.has(id)) state.selected.delete(id);
 
-  // Стены, двери и мебель.
+  // Стены, двери, мебель и устройства зала.
   planData.elements.forEach((el, index) => {
     const div = document.createElement("div");
     div.className = `plan-el ${el.type}`;
@@ -936,6 +936,22 @@ function renderMap() {
     div.style.top = `${el.y * CELL}px`;
     div.style.width = `${el.w * CELL}px`;
     div.style.height = `${el.h * CELL}px`;
+    if (el.type === "device") {
+      const device = state.hallDevices.find((d) => d.id === el.device_id);
+      const meta = DEVICE_TYPES[device?.type] ?? DEVICE_TYPES.exhaust;
+      div.classList.toggle("on", Boolean(device?.is_on));
+      const label = document.createElement("span");
+      label.textContent = device
+        ? device.type === "damper" && device.position
+          ? `${device.name} ${device.position}%`
+          : device.name
+        : "удалено";
+      div.append(icon(meta.ic), label);
+      div.title = device ? `${meta.label}: ${deviceStatusText(device, device.switches_in_seconds)}` : "";
+      if (!state.editMode && device) {
+        div.addEventListener("click", () => openDeviceControl(device));
+      }
+    }
     if (state.editMode) {
       div.dataset.elIndex = String(index);
       div.classList.add("editable");
@@ -1020,6 +1036,44 @@ function renderMap() {
   updateSelectionUI();
   updateTiles();
   fitPlanToViewport();
+  if (state.editMode) renderDevicePalette();
+}
+
+/** Клик по устройству на плане: те же кнопки, что на вкладке «Устройства». */
+function openDeviceControl(device) {
+  const body = document.createElement("div");
+  body.append(
+    buildDeviceChip(device, async () => {
+      closeModal();
+      await refreshDashboard();
+    })
+  );
+  openModal(device.name, body);
+}
+
+/**
+ * Палитра редактора: устройства, которых ещё нет на плане. Стоящие
+ * там уже — не показываем: одно устройство стоит в одном месте.
+ */
+function renderDevicePalette() {
+  const box = document.getElementById("pal-devices");
+  if (!box || !state.edit) return;
+  const placed = new Set(
+    state.edit.elements.filter((el) => el.type === "device").map((el) => el.device_id)
+  );
+  box.replaceChildren();
+  for (const device of state.hallDevices) {
+    if (placed.has(device.id)) continue;
+    const meta = DEVICE_TYPES[device.type] ?? DEVICE_TYPES.exhaust;
+    const btn = document.createElement("button");
+    btn.className = "pal-tool";
+    btn.dataset.tool = `device:${device.id}`;
+    btn.append(icon(meta.ic), device.name);
+    btn.title = meta.label;
+    btn.addEventListener("click", () => setEditorTool(btn.dataset.tool));
+    box.append(btn);
+  }
+  document.getElementById("pal-devices-hint").hidden = state.hallDevices.length > 0 && box.children.length === 0;
 }
 
 /**
@@ -1114,14 +1168,9 @@ function planEditorHasChanges() {
     return true;
   }
   if (state.edit.changed && state.edit.changed.size > 0) return true;
-  const before = state.plan.elements
-    .map((el) => `${el.type}:${el.x},${el.y},${el.w},${el.h}`)
-    .sort()
-    .join("|");
-  const after = state.edit.elements
-    .map((el) => `${el.type}:${el.x},${el.y},${el.w},${el.h}`)
-    .sort()
-    .join("|");
+  const key = (el) => `${el.type}:${el.device_id ?? ""}:${el.x},${el.y},${el.w},${el.h}`;
+  const before = state.plan.elements.map(key).sort().join("|");
+  const after = state.edit.elements.map(key).sort().join("|");
   return before !== after;
 }
 
@@ -1190,8 +1239,8 @@ async function savePlanEditor() {
       body: JSON.stringify({
         cols: state.edit.cols,
         rows: state.edit.rows,
-        elements: state.edit.elements.map(({ type, x, y, w, h }) => ({
-          type, x, y, w, h,
+        elements: state.edit.elements.map(({ type, x, y, w, h, device_id }) => ({
+          type, x, y, w, h, ...(type === "device" ? { device_id } : {}),
         })),
       }),
     });
@@ -1306,6 +1355,7 @@ const FURNITURE_DEFAULTS = {
   armchair: { w: 1, h: 1 },
   deco_table: { w: 2, h: 2 },
   tv: { w: 2, h: 1 },
+  device: { w: 4, h: 2 }, // иконка и название читаются, дальше — растянуть
 };
 
 /** Рисование стены/двери/мебели и ластик. */
@@ -1348,28 +1398,32 @@ function planDrawStart(event) {
     };
   };
 
+  // Устройство зала ставится кликом, как мебель, но помнит, какое оно.
+  const deviceId = tool.startsWith("device:") ? Number(tool.slice(7)) : null;
+  const kind = deviceId === null ? tool : "device";
+
   const startCell = planCellFromEvent(event);
   const preview = document.createElement("div");
-  preview.className = `plan-el ${tool} preview`;
+  preview.className = `plan-el ${kind} preview`;
   document.getElementById("plan").append(preview);
-  const def = FURNITURE_DEFAULTS[tool] || { w: 1, h: 1 };
-  let current = clampBox({ type: tool, x: startCell.x, y: startCell.y, ...def });
+  const def = FURNITURE_DEFAULTS[kind] || { w: 1, h: 1 };
+  let current = clampBox({ type: kind, x: startCell.x, y: startCell.y, ...def });
 
   const applyPreview = (cell) => {
     const dx = cell.x - startCell.x;
     const dy = cell.y - startCell.y;
-    if (LINE_TOOLS.has(tool)) {
+    if (LINE_TOOLS.has(kind)) {
       // Ось с бОльшим смещением задаёт направление линии.
       current = Math.abs(dx) >= Math.abs(dy)
-        ? { type: tool, x: Math.min(startCell.x, cell.x), y: startCell.y, w: Math.abs(dx) + 1, h: 1 }
-        : { type: tool, x: startCell.x, y: Math.min(startCell.y, cell.y), w: 1, h: Math.abs(dy) + 1 };
+        ? { type: kind, x: Math.min(startCell.x, cell.x), y: startCell.y, w: Math.abs(dx) + 1, h: 1 }
+        : { type: kind, x: startCell.x, y: Math.min(startCell.y, cell.y), w: 1, h: Math.abs(dy) + 1 };
     } else if (dx === 0 && dy === 0) {
       // Просто клик без протяжки — ставим мебель размером по умолчанию.
-      current = clampBox({ type: tool, x: startCell.x, y: startCell.y, ...def });
+      current = clampBox({ type: kind, x: startCell.x, y: startCell.y, ...def });
     } else {
       // Протяжка — свободный прямоугольник в обе стороны.
       current = clampBox({
-        type: tool,
+        type: kind,
         x: Math.min(startCell.x, cell.x),
         y: Math.min(startCell.y, cell.y),
         w: Math.abs(dx) + 1,
@@ -1388,7 +1442,11 @@ function planDrawStart(event) {
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup", onUp);
     preview.remove();
+    if (deviceId !== null) current.device_id = deviceId;
     state.edit.elements.push(current);
+    // Устройство стоит в одном месте — после установки инструмент
+    // возвращается к перемещению, чтобы второй клик не поставил дубль.
+    if (deviceId !== null) setEditorTool("move");
     renderMap();
   };
   document.addEventListener("mousemove", onMove);
@@ -1616,12 +1674,13 @@ function tick() {
 
 async function refreshDashboard() {
   if (state.editMode) return; // пока редактируют план — данные не трогаем
-  const [tables, tariffs, auto, plan, promo] = await Promise.all([
+  const [tables, tariffs, auto, plan, promo, devices] = await Promise.all([
     api("/api/dashboard"),
     api("/api/tariffs"),
     api("/api/tariffs/auto"),
     api("/api/plan"),
     api("/api/promotions/active").catch(() => ({ promotion: null })),
+    api("/api/devices").catch(() => []),
   ]);
   state.promotion = promo.promotion ?? null;
   // Стол продлили — время снова есть, значит и предупредить о нём надо
@@ -1639,11 +1698,20 @@ async function refreshDashboard() {
   state.tariffs = tariffs;
   state.autoTariffId = auto.tariff_id;
   state.plan = plan;
+  state.hallDevices = devices; // для плиток устройств на плане
   state.fetchedAt = performance.now();
   renderTables();
 }
 
 // ------------------------------------------- устройства зала (вытяжка и т. п.)
+
+/** Виды устройств зала: подпись и иконка (для плашек, таблицы и плана). */
+const DEVICE_TYPES = {
+  ac: { label: "Кондиционер", ic: "ac" },
+  exhaust: { label: "Вытяжка", ic: "exhaust" },
+  intake: { label: "Приток", ic: "intake" },
+  damper: { label: "Решётка канала", ic: "damper" },
+};
 
 /** «через 7 мин» / «через 40 с» — до смены фазы цикла. */
 function formatSwitchIn(seconds) {
@@ -1654,6 +1722,10 @@ function formatSwitchIn(seconds) {
 /** Подпись состояния устройства для плашки. secondsLeft — уже с учётом
  * времени, прошедшего после ответа сервера. */
 function deviceStatusText(device, secondsLeft) {
+  if (device.type === "damper") {
+    if (!device.position) return "закрыта";
+    return device.positions.length === 1 ? "открыта" : `открыта на ${device.position}%`;
+  }
   let text = device.is_on ? "работает" : "стоит";
   if (device.cycle_on && device.should_be_on !== device.is_on) {
     // Фаза уже сменилась, а реле ещё нет: либо ждём ближайший тик
@@ -1689,33 +1761,57 @@ function updateDeviceCountdowns() {
  * Плашка устройства: состояние, когда переключится, кнопки «включить/
  * выключить» и «цикл». Это не стол: ни таймера, ни денег — только реле.
  */
-function buildDeviceChip(device) {
+function buildDeviceChip(device, afterAction = refreshDevicesTab) {
   const chip = document.createElement("div");
   chip.className = `device-chip${device.is_on ? " on" : ""}`;
   chip.dataset.deviceId = device.id;
 
+  const meta = DEVICE_TYPES[device.type] ?? DEVICE_TYPES.exhaust;
   const name = document.createElement("b");
-  name.textContent = device.name;
+  name.append(icon(meta.ic), ` ${device.name}`);
+  name.title = meta.label;
 
   const status = document.createElement("span");
   status.className = "device-status";
   status.textContent = deviceStatusText(device, device.switches_in_seconds);
 
-  const call = async (url, on) => {
+  const call = async (url, body) => {
     try {
-      await api(url, { method: "POST", body: JSON.stringify({ on }) });
-      await refreshDevicesTab();
+      await api(url, { method: "POST", body: JSON.stringify(body) });
+      await afterAction();
     } catch (error) {
       showToast(error.message);
     }
   };
+
+  // Решётка: кнопка на каждое положение и «Закрыть»; цикла у неё нет.
+  if (device.type === "damper") {
+    chip.append(name, status);
+    for (const percent of [...device.positions, 0]) {
+      const btn = document.createElement("button");
+      btn.className = `mini${device.position === percent ? " active" : ""}`;
+      btn.textContent = !percent
+        ? "Закрыть"
+        : device.positions.length === 1
+          ? "Открыть"
+          : `${percent}%`;
+      btn.addEventListener("click", () =>
+        call(`/api/devices/${device.id}/position`, { percent })
+      );
+      chip.append(btn);
+    }
+    return chip;
+  }
+
   const power = document.createElement("button");
   power.className = "mini";
   power.textContent = device.is_on ? "Выключить" : "Включить";
   power.title = device.cycle_on
     ? "Переключить сейчас — цикл начнётся заново с этой фазы"
     : "Переключить реле";
-  power.addEventListener("click", () => call(`/api/devices/${device.id}/power`, !device.is_on));
+  power.addEventListener("click", () =>
+    call(`/api/devices/${device.id}/power`, { on: !device.is_on })
+  );
 
   const cycle = document.createElement("button");
   cycle.className = `mini${device.cycle_on ? " active" : ""}`;
@@ -1723,7 +1819,9 @@ function buildDeviceChip(device) {
   cycle.title = device.cycle_on
     ? `Работает ${device.work_minutes} мин, стоит ${device.rest_minutes} — по кругу. Нажмите, чтобы остановить`
     : `Запустить по кругу: работает ${device.work_minutes} мин, стоит ${device.rest_minutes}`;
-  cycle.addEventListener("click", () => call(`/api/devices/${device.id}/cycle`, !device.cycle_on));
+  cycle.addEventListener("click", () =>
+    call(`/api/devices/${device.id}/cycle`, { on: !device.cycle_on })
+  );
 
   chip.append(name, status, power, cycle);
   return chip;
@@ -1731,7 +1829,8 @@ function buildDeviceChip(device) {
 
 function renderDevicesBar(devices) {
   const bar = document.getElementById("devices-bar");
-  bar.replaceChildren(...devices.map(buildDeviceChip));
+  // Не map(buildDeviceChip): map подсунул бы индекс вместо afterAction.
+  bar.replaceChildren(...devices.map((device) => buildDeviceChip(device)));
   bar.hidden = devices.length === 0;
   document.getElementById("devices-none").hidden = devices.length > 0;
 }
@@ -2699,6 +2798,7 @@ const EVENT_LABELS = {
   device_on: "Устройство включено",
   device_off: "Устройство выключено",
   device_cycle: "Цикл устройства",
+  device_position: "Положение решётки",
   shift_opened: "Смена открыта",
   shift_closed: "Смена закрыта",
   user_created: "Создан сотрудник",
@@ -5885,12 +5985,42 @@ function buildDeviceRow(device) {
   const workInput = numberInput(device.work_minutes, 1);
   const restInput = numberInput(device.rest_minutes, 0);
 
+  const typeSelect = document.createElement("select");
+  typeSelect.className = "device-type";
+  for (const [value, meta] of Object.entries(DEVICE_TYPES)) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = meta.label;
+    typeSelect.append(option);
+  }
+  typeSelect.value = device.type in DEVICE_TYPES ? device.type : "exhaust";
+
+  const positionsInput = document.createElement("input");
+  positionsInput.type = "text";
+  positionsInput.placeholder = "30,50,70";
+  positionsInput.title = "Положения решётки в процентах через запятую; одно положение — заслонка открыто/закрыто";
+  positionsInput.value = device.positions.join(",");
+  positionsInput.size = 10;
+
+  // Вытяжке — цикл, решётке — положения: в одной ячейке, по виду.
+  const cycleFields = document.createElement("span");
+  cycleFields.className = "cycle-fields";
+  cycleFields.append(workInput, "/", restInput);
+  const applyType = () => {
+    const damper = typeSelect.value === "damper";
+    cycleFields.hidden = damper;
+    positionsInput.hidden = !damper;
+  };
+  applyType();
+
   const save = async () => {
     try {
       await api(`/api/devices/${device.id}`, {
         method: "PUT",
         body: JSON.stringify({
           name: nameInput.value.trim(),
+          type: typeSelect.value,
+          positions: positionsInput.value,
           work_minutes: Number(workInput.value),
           rest_minutes: Number(restInput.value),
           ...relay.payload(),
@@ -5902,7 +6032,11 @@ function buildDeviceRow(device) {
     }
   };
   const relay = buildRelayFields(device, save);
-  for (const field of [nameInput, workInput, restInput]) {
+  typeSelect.addEventListener("change", () => {
+    applyType();
+    save();
+  });
+  for (const field of [nameInput, workInput, restInput, positionsInput]) {
     field.addEventListener("change", save);
   }
 
@@ -5927,10 +6061,12 @@ function buildDeviceRow(device) {
     td.append(node);
     return td;
   };
+  const cycleCell = document.createElement("td");
+  cycleCell.append(cycleFields, positionsInput);
   tr.append(
     cell(nameInput),
-    cell(workInput),
-    cell(restInput),
+    cell(typeSelect),
+    cycleCell,
     relay.kindCell,
     relay.settingsCell,
     actionsCell
@@ -7414,6 +7550,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Решётке — положения вместо цикла.
+  document.getElementById("new-device-type").addEventListener("change", (e) => {
+    const damper = e.target.value === "damper";
+    document.getElementById("new-device-positions").hidden = !damper;
+    document.getElementById("new-device-work").hidden = damper;
+    document.getElementById("new-device-rest").hidden = damper;
+  });
   document.getElementById("device-add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const nameInput = document.getElementById("new-device-name");
@@ -7422,6 +7565,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         method: "POST",
         body: JSON.stringify({
           name: nameInput.value.trim(),
+          type: document.getElementById("new-device-type").value,
+          positions: document.getElementById("new-device-positions").value,
           work_minutes: Number(document.getElementById("new-device-work").value),
           rest_minutes: Number(document.getElementById("new-device-rest").value),
         }),

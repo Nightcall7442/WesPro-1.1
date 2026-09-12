@@ -10,8 +10,11 @@ import { getSettings, saveSettings } from "./settings.js";
 const MAX_ELEMENTS = 500;
 
 // Стена и дверь — планировка помещения; диван/кресло/стол/телевизор —
-// декоративный интерьер, чтобы на карте зала было видно расстановку мебели.
-const ELEMENT_TYPES = new Set(["wall", "door", "sofa", "armchair", "deco_table", "tv"]);
+// декоративный интерьер, чтобы на карте зала было видно расстановку
+// мебели. device — устройство зала (кондиционер, вытяжка, приток,
+// решётка) на своём месте в комнате: живая плитка со ссылкой на
+// устройство, а не картинка.
+const ELEMENT_TYPES = new Set(["wall", "door", "sofa", "armchair", "deco_table", "tv", "device"]);
 
 /** @param {import("node:sqlite").DatabaseSync} db */
 export function getPlan(db) {
@@ -20,14 +23,22 @@ export function getPlan(db) {
     cols: Number(settings.plan_cols),
     rows: Number(settings.plan_rows),
     elements: db
-      .prepare("SELECT id, type, x, y, w, h FROM plan_elements ORDER BY id")
+      .prepare("SELECT id, type, x, y, w, h, device_id FROM plan_elements ORDER BY id")
       .all(),
   };
 }
 
-function validateElement(el, cols, rows) {
+function validateElement(db, el, cols, rows) {
   if (!ELEMENT_TYPES.has(el.type)) {
     throw new ConflictError(`Неизвестный элемент плана «${el.type}»`);
+  }
+  if (el.type === "device") {
+    const exists =
+      Number.isInteger(el.device_id) &&
+      db.prepare("SELECT 1 FROM devices WHERE id = ?").get(el.device_id);
+    if (!exists) {
+      throw new ConflictError("На плане устройство, которого больше нет — уберите его ластиком");
+    }
   }
   for (const key of ["x", "y", "w", "h"]) {
     if (!Number.isInteger(el[key])) {
@@ -57,15 +68,24 @@ export function savePlan(db, data) {
   if (elements.length > MAX_ELEMENTS) {
     throw new ConflictError(`Слишком много элементов плана (максимум ${MAX_ELEMENTS})`);
   }
-  for (const el of elements) validateElement(el, cols, rows);
+  for (const el of elements) validateElement(db, el, cols, rows);
 
   withTransaction(db, () => {
     db.prepare("DELETE FROM plan_elements").run();
     const insert = db.prepare(
-      "INSERT INTO plan_elements (type, x, y, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      `INSERT INTO plan_elements (type, x, y, w, h, device_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
     for (const el of elements) {
-      insert.run(el.type, el.x, el.y, el.w, el.h, utcNow());
+      insert.run(
+        el.type,
+        el.x,
+        el.y,
+        el.w,
+        el.h,
+        el.type === "device" ? el.device_id : null,
+        utcNow()
+      );
     }
   });
   return getPlan(db);

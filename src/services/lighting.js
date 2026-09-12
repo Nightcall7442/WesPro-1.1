@@ -89,6 +89,7 @@ export function parseRelayBinding(data = {}) {
 
 export class MockLightingController {
   #on = new Set();
+  #positions = new Map();
 
   /** @param {number} tableId */
   turnLightOn(tableId) {
@@ -121,6 +122,17 @@ export class MockLightingController {
   /** @param {number} tableId */
   async readLight(tableId) {
     return this.#on.has(tableId);
+  }
+
+  /** Положение решётки/заслонки в процентах — у заглушки просто память. */
+  async setPosition(id, percent) {
+    this.#positions.set(id, percent);
+    console.info(`Mock lighting: position ${percent}% for device ${id}`);
+    return true;
+  }
+
+  positionOf(id) {
+    return this.#positions.get(id) ?? 0;
   }
 }
 
@@ -197,6 +209,14 @@ class CompositeLightingController {
     if (state === true) this.#memory.turnLightOn(tableId);
     if (state === false) this.#memory.turnLightOff(tableId);
     return state;
+  }
+
+  /** Положение привода (решётка канала) в процентах: 0 — закрыто. */
+  async setPosition(id, percent) {
+    const backend = this.#backendFor(id);
+    if (backend !== this.#memory) await backend.setPosition(id, percent);
+    await this.#memory.setPosition(id, percent);
+    return true;
   }
 }
 

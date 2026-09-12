@@ -16,6 +16,7 @@ export const JournalEvent = Object.freeze({
   DEVICE_ON: "device_on",
   DEVICE_OFF: "device_off",
   DEVICE_CYCLE: "device_cycle",
+  DEVICE_POSITION: "device_position",
   SHIFT_OPENED: "shift_opened",
   SHIFT_CLOSED: "shift_closed",
   CASH_MOVEMENT: "cash_movement",

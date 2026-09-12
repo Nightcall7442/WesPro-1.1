@@ -176,3 +176,29 @@ test("незаполненная привязка объясняет, чего �
   await assert.rejects(() => lighting.setLight(1, true), /адрес устройства/i);
   await assert.rejects(() => lighting.setLight(2, true), /адреса включения/i);
 });
+
+test("положение привода: Tasmota ShutterPosition, «своё устройство» с {percent}", async (t) => {
+  const device = await fakeDevice(t, () => ({ Shutter1: { Position: 50 } }));
+  const tasmota = new HttpLightingController(() => ({
+    kind: "tasmota",
+    host: device.host,
+    channel: 0,
+  }));
+  await tasmota.setPosition(1, 50);
+  assert.match(device.calls.at(-1), /\/cm\?cmnd=ShutterPosition1%2050/);
+
+  const custom = new HttpLightingController(() => ({
+    kind: "url",
+    on_url: `http://${device.host}/set?pos={percent}`,
+    off_url: `http://${device.host}/off`,
+  }));
+  await custom.setPosition(2, 30);
+  assert.match(device.calls.at(-1), /\/set\?pos=30/);
+
+  const noSlot = new HttpLightingController(() => ({
+    kind: "url",
+    on_url: `http://${device.host}/on`,
+    off_url: `http://${device.host}/off`,
+  }));
+  await assert.rejects(noSlot.setPosition(3, 30), /\{percent\}/);
+});

@@ -57,6 +57,7 @@ import {
   deleteDevice,
   listDevices,
   setDeviceCycle,
+  setDevicePosition,
   setDevicePower,
   updateDevice,
 } from "../services/devices.js";
@@ -1138,6 +1139,23 @@ export function createApiRouter(db) {
         db,
         on ? JournalEvent.DEVICE_ON : JournalEvent.DEVICE_OFF,
         `${on ? "Включено" : "Выключено"} устройство «${device.name}» вручную — ${req.user.name}`
+      );
+      res.json(device);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Решётка канала: положение в процентах (0 — закрыть).
+  router.post("/devices/:id/position", async (req, res, next) => {
+    try {
+      const id = intParam(req.params.id);
+      if (id === null) return res.status(404).json({ detail: "Устройство не найдено" });
+      const device = await setDevicePosition(db, id, req.body?.percent);
+      logEvent(
+        db,
+        JournalEvent.DEVICE_POSITION,
+        `«${device.name}»: ${device.position ? `положение ${device.position}%` : "закрыта"} — ${req.user.name}`
       );
       res.json(device);
     } catch (error) {

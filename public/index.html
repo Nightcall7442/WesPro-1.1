@@ -112,6 +112,14 @@
           <button class="pal-tool" data-tool="armchair"><i class="ic ic-armchair"></i>Кресло</button>
           <button class="pal-tool" data-tool="deco_table"><i class="ic ic-deco_table"></i>Стол (мебель)</button>
           <button class="pal-tool" data-tool="tv"><i class="ic ic-tv"></i>Телевизор</button>
+          <div class="pal-sep">Устройства</div>
+          <div id="pal-devices"></div>
+          <p class="hint" id="pal-devices-hint">
+            Кондиционер, вытяжка, приток, решётки — по комнатам: выберите
+            устройство и кликните на план. Стоящие на плане в списке не
+            показываются; убрать с плана — ластиком (само устройство
+            останется). Заводятся в разделе «Устройства».
+          </p>
           <button class="pal-tool" data-tool="erase"><i class="ic ic-eraser"></i>Ластик</button>
           <p class="hint">
             «Двигать / растягивать» — тяните стол, стену или мебель; за
@@ -414,7 +422,7 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>Устройство</th><th>Работает, мин</th><th>Стоит, мин</th>
+              <th>Устройство</th><th>Вид</th><th>Цикл (мин) или положения (%)</th>
               <th>Тип реле</th><th>Настройка</th><th></th>
             </tr>
           </thead>
@@ -422,10 +430,24 @@
         </table>
         <form id="device-add-form" class="inline-form">
           <input id="new-device-name" type="text" placeholder="Название — например, Вытяжка" required maxlength="100">
+          <select id="new-device-type">
+            <option value="exhaust">Вытяжка</option>
+            <option value="ac">Кондиционер</option>
+            <option value="intake">Приток</option>
+            <option value="damper">Решётка канала</option>
+          </select>
           <input id="new-device-work" type="number" placeholder="Работает, мин" required min="1" max="1440" step="1" value="15">
           <input id="new-device-rest" type="number" placeholder="Стоит, мин" required min="0" max="1440" step="1" value="30">
+          <input id="new-device-positions" type="text" placeholder="Положения, % — например 30,50,70" value="30,50,70" hidden>
           <button type="submit">Добавить устройство</button>
         </form>
+        <p class="hint">
+          Решётка с одним положением (например «100») — это заслонка
+          «открыто/закрыто» на обычном реле. С несколькими — привод с
+          положениями: Tuya (команда percent_control), Tasmota со шторами
+          (ShutterPosition), Shelly в режиме roller или свой адрес с
+          подстановкой <b>{percent}</b>.
+        </p>
       </div>
     </section>
 

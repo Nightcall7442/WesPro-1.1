@@ -78,8 +78,13 @@ export function exportConfig(db) {
             .map((r) => r.name),
         };
       }),
+    // Устройство на плане — по названию: id в новой базе будут другие.
     plan_elements: db
-      .prepare("SELECT type, x, y, w, h FROM plan_elements ORDER BY id")
+      .prepare(
+        `SELECT e.type, e.x, e.y, e.w, e.h, d.name AS device_name
+         FROM plan_elements e LEFT JOIN devices d ON d.id = e.device_id
+         ORDER BY e.id`
+      )
       .all(),
     role_permissions: db
       .prepare("SELECT role, permission, allowed FROM role_permissions ORDER BY role")
@@ -90,7 +95,7 @@ export function exportConfig(db) {
     // Устройства зала — название и цикл. Реле, как и у столов, не
     // переносится: адреса и ключи привязаны к конкретному помещению.
     devices: db
-      .prepare("SELECT name, work_minutes, rest_minutes FROM devices ORDER BY id")
+      .prepare("SELECT name, type, positions, work_minutes, rest_minutes FROM devices ORDER BY id")
       .all(),
   };
 }
@@ -298,20 +303,58 @@ export function importConfig(db, data, user) {
       }
     }
 
-    // Стены и мебель — расстановка целиком.
+    // Устройства зала: одноимённым обновляем вид и цикл, новые добавляем
+    // (без реле и выключенными — реле подключат на месте). Раньше плана:
+    // на плане они стоят по названию.
+    if (Array.isArray(data.devices)) {
+      const insertDevice = db.prepare(
+        `INSERT INTO devices (name, type, positions, work_minutes, rest_minutes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const device of data.devices) {
+        const name = String(device.name ?? "").trim();
+        const work = Number(device.work_minutes);
+        const rest = Number(device.rest_minutes);
+        const type = String(device.type ?? "exhaust");
+        const positions = String(device.positions ?? "");
+        if (!name || !Number.isInteger(work) || work < 1 || !Number.isInteger(rest) || rest < 0) {
+          continue; // битая строка в файле — не повод ронять весь перенос
+        }
+        const existing = db.prepare("SELECT id FROM devices WHERE name = ?").get(name);
+        if (existing) {
+          db.prepare(
+            "UPDATE devices SET type = ?, positions = ?, work_minutes = ?, rest_minutes = ? WHERE id = ?"
+          ).run(type, positions, work, rest, existing.id);
+        } else {
+          insertDevice.run(name, type, positions, work, rest, utcNow());
+        }
+        applied.devices += 1;
+      }
+    }
+
+    // Стены, мебель и устройства на плане — расстановка целиком.
     if (Array.isArray(data.plan_elements)) {
       db.exec("DELETE FROM plan_elements");
       const insertEl = db.prepare(
-        `INSERT INTO plan_elements (type, x, y, w, h, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO plan_elements (type, x, y, w, h, device_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       );
       for (const el of data.plan_elements) {
+        let deviceId = null;
+        if (el.type === "device") {
+          const device = db
+            .prepare("SELECT id FROM devices WHERE name = ?")
+            .get(String(el.device_name ?? ""));
+          if (!device) continue; // устройства с таким названием здесь нет
+          deviceId = device.id;
+        }
         insertEl.run(
           String(el.type),
           Number(el.x),
           Number(el.y),
           Number(el.w),
           Number(el.h),
+          deviceId,
           utcNow()
         );
         applied.plan_elements += 1;
@@ -347,34 +390,6 @@ export function importConfig(db, data, user) {
           utcNow()
         );
         applied.menu_items += 1;
-      }
-    }
-
-    // Устройства зала: одноимённым обновляем цикл, новые добавляем
-    // (без реле и выключенными — реле подключат на месте).
-    if (Array.isArray(data.devices)) {
-      const insertDevice = db.prepare(
-        `INSERT INTO devices (name, work_minutes, rest_minutes, created_at)
-         VALUES (?, ?, ?, ?)`
-      );
-      for (const device of data.devices) {
-        const name = String(device.name ?? "").trim();
-        const work = Number(device.work_minutes);
-        const rest = Number(device.rest_minutes);
-        if (!name || !Number.isInteger(work) || work < 1 || !Number.isInteger(rest) || rest < 0) {
-          continue; // битая строка в файле — не повод ронять весь перенос
-        }
-        const existing = db.prepare("SELECT id FROM devices WHERE name = ?").get(name);
-        if (existing) {
-          db.prepare("UPDATE devices SET work_minutes = ?, rest_minutes = ? WHERE id = ?").run(
-            work,
-            rest,
-            existing.id
-          );
-        } else {
-          insertDevice.run(name, work, rest, utcNow());
-        }
-        applied.devices += 1;
       }
     }
 

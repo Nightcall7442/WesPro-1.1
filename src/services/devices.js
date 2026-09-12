@@ -14,9 +14,21 @@ import { ConflictError, NotFoundError } from "./errors.js";
 import { getDeviceController, parseRelayBinding } from "./lighting.js";
 
 const FIELDS =
-  "id, name, work_minutes, rest_minutes, cycle_on, cycle_started_at, is_on, " +
-  "light_kind, light_host, light_channel, light_on_url, light_off_url, " +
-  "tuya_device_id, tuya_switch_code, created_at";
+  "id, name, type, positions, position, work_minutes, rest_minutes, cycle_on, " +
+  "cycle_started_at, is_on, light_kind, light_host, light_channel, light_on_url, " +
+  "light_off_url, tuya_device_id, tuya_switch_code, created_at";
+
+/**
+ * Виды устройств. Кондиционер, вытяжка и приток — выключатель с циклом.
+ * Решётка канала — привод с положениями («30,50,70»); решётка с одним
+ * положением — по сути заслонка «открыто/закрыто» на обычном реле.
+ */
+export const DEVICE_TYPES = Object.freeze({
+  ac: "Кондиционер",
+  exhaust: "Вытяжка",
+  intake: "Приток",
+  damper: "Решётка канала",
+});
 
 /** Как часто сверяем реле с циклом. Минута точности для вытяжки — с запасом. */
 export const TICK_MS = 30_000;
@@ -53,10 +65,19 @@ function failedSet(db) {
   return set;
 }
 
+function parsePositions(text) {
+  return String(text ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(Number);
+}
+
 function toOut(db, row, now) {
   const phase = phaseOf(row, now);
   return {
     ...row,
+    positions: parsePositions(row.positions),
     cycle_on: Boolean(row.cycle_on),
     is_on: Boolean(row.is_on),
     // Чего требует цикл. Расходится с is_on — либо ближайший тик ещё не
@@ -85,15 +106,31 @@ export function getDevice(db, id) {
 function parseFields(data) {
   const name = String(data.name ?? "").trim();
   if (!name) throw new ConflictError("Название устройства не может быть пустым");
-  const work = Number(data.work_minutes);
-  const rest = Number(data.rest_minutes);
+  const type = String(data.type ?? "exhaust").trim();
+  if (!(type in DEVICE_TYPES)) {
+    throw new ConflictError(`Неизвестный вид устройства «${type}»`);
+  }
+  // У решётки вместо цикла — положения; у остальных положений нет.
+  let positions = [];
+  if (type === "damper") {
+    positions = [...new Set(parsePositions(
+      Array.isArray(data.positions) ? data.positions.join(",") : data.positions
+    ))].sort((a, b) => a - b);
+    if (!positions.length || positions.some((p) => !Number.isInteger(p) || p < 1 || p > 100)) {
+      throw new ConflictError(
+        "Положения решётки: проценты от 1 до 100 через запятую — например 30,50,70"
+      );
+    }
+  }
+  const work = Number(data.work_minutes ?? 15);
+  const rest = Number(data.rest_minutes ?? 30);
   if (!Number.isInteger(work) || work < 1 || work > 1440) {
     throw new ConflictError("Сколько работает: целое число минут от 1 до 1440");
   }
   if (!Number.isInteger(rest) || rest < 0 || rest > 1440) {
     throw new ConflictError("Сколько стоит: целое число минут от 0 до 1440");
   }
-  return { name, work, rest, relay: parseRelayBinding(data) };
+  return { name, type, positions: positions.join(","), work, rest, relay: parseRelayBinding(data) };
 }
 
 /**
@@ -104,19 +141,21 @@ function parseFields(data) {
  *   off_url?: string|null}} data
  */
 export function createDevice(db, data = {}) {
-  const { name, work, rest, relay } = parseFields(data);
+  const { name, type, positions, work, rest, relay } = parseFields(data);
   if (db.prepare("SELECT 1 FROM devices WHERE name = ?").get(name)) {
     throw new ConflictError(`Устройство «${name}» уже есть`);
   }
   const { lastInsertRowid } = db
     .prepare(
-      `INSERT INTO devices (name, work_minutes, rest_minutes, light_kind, light_host,
-         light_channel, light_on_url, light_off_url, tuya_device_id, tuya_switch_code,
-         created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO devices (name, type, positions, work_minutes, rest_minutes, light_kind,
+         light_host, light_channel, light_on_url, light_off_url, tuya_device_id,
+         tuya_switch_code, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       name,
+      type,
+      positions,
       work,
       rest,
       relay.light_kind,
@@ -134,18 +173,24 @@ export function createDevice(db, data = {}) {
 /** Полная замена полей (интерфейс всегда шлёт всю строку). */
 export function updateDevice(db, id, data = {}) {
   getDevice(db, id);
-  const { name, work, rest, relay } = parseFields(data);
+  const { name, type, positions, work, rest, relay } = parseFields(data);
   if (db.prepare("SELECT 1 FROM devices WHERE name = ? AND id != ?").get(name, id)) {
     throw new ConflictError(`Устройство «${name}» уже есть`);
   }
+  // Стало решёткой — цикл ей не положен.
+  if (type === "damper") {
+    db.prepare("UPDATE devices SET cycle_on = 0, cycle_started_at = NULL WHERE id = ?").run(id);
+  }
   db.prepare(
     `UPDATE devices
-       SET name = ?, work_minutes = ?, rest_minutes = ?, light_kind = ?, light_host = ?,
-           light_channel = ?, light_on_url = ?, light_off_url = ?, tuya_device_id = ?,
-           tuya_switch_code = ?
+       SET name = ?, type = ?, positions = ?, work_minutes = ?, rest_minutes = ?,
+           light_kind = ?, light_host = ?, light_channel = ?, light_on_url = ?,
+           light_off_url = ?, tuya_device_id = ?, tuya_switch_code = ?
      WHERE id = ?`
   ).run(
     name,
+    type,
+    positions,
     work,
     rest,
     relay.light_kind,
@@ -191,6 +236,10 @@ async function applyPower(db, id, on) {
  */
 export async function setDevicePower(db, id, on, now = Date.now()) {
   const device = getDevice(db, id);
+  // У решётки «включить» — открыть до упора, «выключить» — закрыть.
+  if (device.type === "damper") {
+    return setDevicePosition(db, id, on ? Math.max(...device.positions) : 0);
+  }
   await applyPower(db, id, on);
   if (device.cycle_on) {
     const anchor = on ? now : now - device.work_minutes * 60_000;
@@ -210,13 +259,53 @@ export async function setDevicePower(db, id, on, now = Date.now()) {
  * @param {import("node:sqlite").DatabaseSync} db
  */
 export async function setDeviceCycle(db, id, on, now = Date.now()) {
-  getDevice(db, id);
+  const device = getDevice(db, id);
+  if (device.type === "damper") {
+    throw new ConflictError("У решётки нет цикла — выберите положение");
+  }
   db.prepare("UPDATE devices SET cycle_on = ?, cycle_started_at = ? WHERE id = ?").run(
     on ? 1 : 0,
     on ? new Date(now).toISOString() : null,
     id
   );
   await applyPower(db, id, on);
+  return getDevice(db, id);
+}
+
+/**
+ * Положение решётки канала в процентах: 0 — закрыта, иначе одно из её
+ * положений. Решётка с несколькими положениями — привод (команда
+ * «встать на N %»), с одним — обычное реле: открыто/закрыто.
+ * @param {import("node:sqlite").DatabaseSync} db
+ */
+export async function setDevicePosition(db, id, percent) {
+  const device = getDevice(db, id);
+  if (device.type !== "damper") {
+    throw new ConflictError("Положение задаётся только решётке канала");
+  }
+  const value = Number(percent);
+  if (value !== 0 && !device.positions.includes(value)) {
+    throw new ConflictError(
+      `У решётки «${device.name}» нет положения ${percent}% (есть: ${device.positions.join(", ")})`
+    );
+  }
+  const failed = failedSet(db);
+  try {
+    if (device.positions.length > 1) {
+      await getDeviceController(db).setPosition(id, value);
+    } else {
+      await getDeviceController(db).setLight(id, value > 0);
+    }
+  } catch (error) {
+    failed.add(id);
+    throw new ConflictError(error.message);
+  }
+  failed.delete(id);
+  db.prepare("UPDATE devices SET position = ?, is_on = ? WHERE id = ?").run(
+    value,
+    value > 0 ? 1 : 0,
+    id
+  );
   return getDevice(db, id);
 }
 

@@ -46,7 +46,9 @@ test("настройка переезжает на чистую базу без 
   assert.ok(config.tariffs.some((t) => t.name === "Дневной"));
   assert.ok(config.promotions.some((p) => p.name === "Утро дешевле"));
   assert.ok(config.tables.some((t) => t.name === "Стол у окна"));
-  assert.deepEqual(config.devices, [{ name: "Вытяжка", work_minutes: 15, rest_minutes: 30 }]);
+  assert.deepEqual(config.devices, [
+    { name: "Вытяжка", type: "exhaust", positions: "", work_minutes: 15, rest_minutes: 30 },
+  ]);
 
   // Истории и людей в файле быть не должно.
   const raw = JSON.stringify(config);
