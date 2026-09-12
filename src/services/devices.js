@@ -15,6 +15,7 @@ import {
   getDeviceController,
   parseRelayBinding,
   probeRelays,
+  relayLastSeen,
   relayOnline,
 } from "./lighting.js";
 
@@ -91,6 +92,7 @@ function toOut(db, row, now) {
     relay_error: failedSet(db).has(row.id),
     // В сети ли реле по последнему опросу; null — реле нет или не узнать.
     online: relayOnline(db, "device", row.id),
+    last_seen: relayLastSeen(db, "device", row.id),
     switches_in_seconds: phase.switchesIn,
   };
 }

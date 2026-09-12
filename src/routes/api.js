@@ -19,6 +19,7 @@ import {
   initLighting,
   listCloudDevices,
   probeRelays,
+  relayLastSeen,
   relayOnline,
 } from "../services/lighting.js";
 import {
@@ -1194,8 +1195,13 @@ export function createApiRouter(db) {
           table_id: t.id,
           name: t.name,
           kind: t.light_kind ?? "tuya",
+          host: t.light_host,
+          channel: t.light_channel,
+          device_id: t.tuya_device_id,
+          on_url: t.light_on_url,
           light_on: lighting.isLightOn(t.id),
           online: relayOnline(db, "table", t.id),
+          last_seen: relayLastSeen(db, "table", t.id),
         }))
     );
   });

@@ -245,7 +245,26 @@ const onlineStates = new WeakMap();
  * @param {number} id
  */
 export function relayOnline(db, scope, id) {
-  return onlineStates.get(db)?.get(`${scope}:${id}`) ?? null;
+  return onlineStates.get(db)?.get(`${scope}:${id}`)?.online ?? null;
+}
+
+/**
+ * Когда реле последний раз выходило на связь (ISO), null — ни разу с
+ * запуска программы. Держится в памяти: после перезапуска отсчёт заново.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {"table"|"device"} scope
+ * @param {number} id
+ */
+export function relayLastSeen(db, scope, id) {
+  return onlineStates.get(db)?.get(`${scope}:${id}`)?.lastSeen ?? null;
+}
+
+function remember(map, key, online) {
+  const prev = map.get(key);
+  map.set(key, {
+    online,
+    lastSeen: online ? new Date().toISOString() : (prev?.lastSeen ?? null),
+  });
 }
 
 /**
@@ -266,10 +285,10 @@ export async function probeRelays(db) {
   const { controller, devices: deviceController } = stateFor(db);
   await Promise.all([
     ...tables.map(async ({ id }) =>
-      map.set(`table:${id}`, await controller.isOnline(id).catch(() => null))
+      remember(map, `table:${id}`, await controller.isOnline(id).catch(() => null))
     ),
     ...devices.map(async ({ id }) =>
-      map.set(`device:${id}`, await deviceController.isOnline(id).catch(() => null))
+      remember(map, `device:${id}`, await deviceController.isOnline(id).catch(() => null))
     ),
   ]);
   return { probed: tables.length + devices.length };

@@ -1741,6 +1741,36 @@ function relayKindLabel(kind) {
     .replace(/ — .*$/, "");
 }
 
+/** Как реле называется в таблице: тип и адрес, чтобы узнать его в сети. */
+function relayIdentity(relay) {
+  const kind = relay.kind ?? relay.light_kind;
+  const host = relay.host ?? relay.light_host;
+  const channel = Number(relay.channel ?? relay.light_channel ?? 0);
+  if (kind === "tasmota" || kind === "shelly") {
+    return `${relayKindLabel(kind)} ${host ?? ""}${channel ? ` · канал ${channel}` : ""}`.trim();
+  }
+  if (kind === "url") {
+    try {
+      return `Своё устройство ${new URL(relay.on_url ?? relay.light_on_url).host}`;
+    } catch {
+      return "Своё устройство";
+    }
+  }
+  return `Tuya / MOES ${relay.device_id ?? relay.tuya_device_id ?? ""}`.trim();
+}
+
+/** «12:34», а если не сегодня — с датой. */
+function formatSeen(iso) {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  const today = new Date().toDateString() === date.toDateString();
+  return date.toLocaleString("ru-RU", {
+    ...(today ? {} : { day: "2-digit", month: "2-digit" }),
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** Связь с реле одним словом: по последнему опросу. */
 function linkState(item) {
   const bound = item.light_kind || item.tuya_device_id || item.kind;
@@ -1821,6 +1851,12 @@ function buildDeviceChip(device, afterAction = refreshDevicesTab) {
   const linkEl = document.createElement("span");
   linkEl.className = `device-link ${link.cls}`;
   linkEl.textContent = link.text;
+  if (device.online === false && device.last_seen) {
+    linkEl.textContent += ` с ${formatSeen(device.last_seen)}`;
+  }
+  linkEl.title = device.last_seen
+    ? `Выходило на связь: ${formatDateTime(device.last_seen)}`
+    : "";
   name.append(" ", linkEl);
 
   const status = document.createElement("span");
@@ -1917,10 +1953,21 @@ function renderRelayRows(relays) {
     linkEl.className = `device-link ${link.cls}`;
     linkEl.textContent = link.text;
 
-    const actions = document.createElement("td");
+    // Реле узнаётся по типу и адресу; над каким столом — мелко рядом.
+    const identity = document.createElement("span");
+    identity.textContent = relayIdentity(relay);
+    const where = document.createElement("span");
+    where.className = "hint";
+    where.textContent = ` — ${relay.name}`;
+    const relayCell = document.createElement("td");
+    relayCell.append(identity, where);
+
+    const lightCell = document.createElement("td");
+    lightCell.append(relay.light_on ? "горит" : "выключен");
     if (state.permissions.manage_tables) {
       const toggle = document.createElement("button");
       toggle.className = "mini";
+      toggle.style.marginLeft = "8px";
       toggle.textContent = relay.light_on ? "Выключить" : "Включить";
       toggle.addEventListener("click", async () => {
         try {
@@ -1933,15 +1980,13 @@ function renderRelayRows(relays) {
           showToast(error.message);
         }
       });
-      actions.append(toggle);
+      lightCell.append(toggle);
     }
-    tr.append(
-      cell(relay.name),
-      cell(relayKindLabel(relay.kind)),
-      cell(linkEl),
-      cell(relay.light_on ? "горит" : "выключен"),
-      actions
-    );
+    const seenCell = cell(formatSeen(relay.last_seen));
+    seenCell.title = relay.last_seen
+      ? formatDateTime(relay.last_seen)
+      : "С запуска программы не отвечало";
+    tr.append(relayCell, cell(linkEl), lightCell, seenCell);
     rows.append(tr);
   }
   document.getElementById("relays-empty").hidden = relays.length > 0;
