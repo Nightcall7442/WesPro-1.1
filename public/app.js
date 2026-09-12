@@ -19,7 +19,8 @@ const state = {
   tariffChoice: new Map(), // table_id -> выбранный tariff_id в селекте
   clientDraft: new Map(),  // table_id -> набранный текст в поле клиента
   devices: [],         // устройства Tuya для вкладки «Настройки»
-  hallDevices: [],     // кондиционер, вытяжка, приток — плашки на «Залах»
+  hallDevices: [],     // кондиционер, вытяжка, приток — вкладка «Устройства»
+  devicesFetchedAt: 0, // когда их ответ пришёл: от него идёт отсчёт на плашках
   user: null,          // текущий сотрудник {id, name, role}
   permissions: {},     // права текущей роли — {manage_tables: bool, ...}
   shift: null,         // открытая кассовая смена или null
@@ -1578,7 +1579,7 @@ function renderTables() {
 function tick() {
   if (state.editMode) return;
   checkTimeWarnings();
-  if (activeTab === "dashboard") updateDeviceCountdowns();
+  if (activeTab === "devices") updateDeviceCountdowns();
   if (activeTab === "dashboard" && isPhoneMode()) {
     for (const table of state.tables) {
       const row = document.querySelector(`.phone-row[data-table-id="${table.id}"]`);
@@ -1615,13 +1616,12 @@ function tick() {
 
 async function refreshDashboard() {
   if (state.editMode) return; // пока редактируют план — данные не трогаем
-  const [tables, tariffs, auto, plan, promo, devices] = await Promise.all([
+  const [tables, tariffs, auto, plan, promo] = await Promise.all([
     api("/api/dashboard"),
     api("/api/tariffs"),
     api("/api/tariffs/auto"),
     api("/api/plan"),
     api("/api/promotions/active").catch(() => ({ promotion: null })),
-    api("/api/devices").catch(() => []),
   ]);
   state.promotion = promo.promotion ?? null;
   // Стол продлили — время снова есть, значит и предупредить о нём надо
@@ -1641,8 +1641,6 @@ async function refreshDashboard() {
   state.plan = plan;
   state.fetchedAt = performance.now();
   renderTables();
-  renderDevicesBar(devices);
-  state.hallDevices = devices;
 }
 
 // ------------------------------------------- устройства зала (вытяжка и т. п.)
@@ -1658,7 +1656,11 @@ function formatSwitchIn(seconds) {
 function deviceStatusText(device, secondsLeft) {
   let text = device.is_on ? "работает" : "стоит";
   if (device.cycle_on && device.should_be_on !== device.is_on) {
-    return `${text} · реле не отвечает, пробуем снова`;
+    // Фаза уже сменилась, а реле ещё нет: либо ждём ближайший тик
+    // (до полуминуты), либо реле молчит — сервер знает, что из двух.
+    return device.relay_error
+      ? `${text} · реле не отвечает, пробуем снова`
+      : `${text} · переключается…`;
   }
   if (device.cycle_on) {
     text +=
@@ -1671,7 +1673,7 @@ function deviceStatusText(device, secondsLeft) {
 
 /** Секундная стрелка плашек: между опросами сервера отсчёт идёт сам. */
 function updateDeviceCountdowns() {
-  const elapsed = (performance.now() - state.fetchedAt) / 1000;
+  const elapsed = (performance.now() - state.devicesFetchedAt) / 1000;
   for (const device of state.hallDevices) {
     const label = document.querySelector(
       `.device-chip[data-device-id="${device.id}"] .device-status`
@@ -1702,7 +1704,7 @@ function buildDeviceChip(device) {
   const call = async (url, on) => {
     try {
       await api(url, { method: "POST", body: JSON.stringify({ on }) });
-      await refreshDashboard();
+      await refreshDevicesTab();
     } catch (error) {
       showToast(error.message);
     }
@@ -1731,6 +1733,22 @@ function renderDevicesBar(devices) {
   const bar = document.getElementById("devices-bar");
   bar.replaceChildren(...devices.map(buildDeviceChip));
   bar.hidden = devices.length === 0;
+  document.getElementById("devices-none").hidden = devices.length > 0;
+}
+
+/**
+ * Вкладка «Устройства»: плашки перерисовываются каждым опросом, а
+ * таблица настройки — только пока в ней никто не печатает: значения в
+ * ней сохраняются по уходу из поля, и перерисовка под руками их бы
+ * стёрла.
+ */
+async function refreshDevicesTab() {
+  const devices = await api("/api/devices");
+  state.hallDevices = devices;
+  state.devicesFetchedAt = performance.now();
+  renderDevicesBar(devices);
+  const rows = document.getElementById("device-rows");
+  if (!rows.contains(document.activeElement)) renderDeviceRows(devices);
 }
 
 async function loadClients() {
@@ -5897,7 +5915,7 @@ function buildDeviceRow(device) {
     try {
       await api(`/api/devices/${device.id}`, { method: "DELETE" });
       showToast("Устройство удалено", true);
-      renderDeviceRows(await api("/api/devices"));
+      await refreshDevicesTab();
     } catch (error) {
       showToast(error.message);
     }
@@ -5924,7 +5942,6 @@ function renderDeviceRows(devices) {
   const rows = document.getElementById("device-rows");
   rows.replaceChildren();
   for (const device of devices) rows.append(buildDeviceRow(device));
-  document.getElementById("devices-empty").hidden = devices.length > 0;
 }
 
 function renderBindings(tables) {
@@ -5969,10 +5986,9 @@ function currentCurrencyValue() {
 }
 
 async function refreshSettings() {
-  const [settings, tables, devices] = await Promise.all([
+  const [settings, tables] = await Promise.all([
     api("/api/settings"),
     api("/api/tables"),
-    api("/api/devices"),
   ]);
   document.getElementById("set-driver").value = settings.lighting_driver;
   document.getElementById("set-host").value = settings.tuya_api_host;
@@ -5990,7 +6006,6 @@ async function refreshSettings() {
   renderLogoPreview(settings.club_logo);
   setupLogoScale(settings.club_logo_height);
   renderBindings(tables);
-  renderDeviceRows(devices);
   document.getElementById("board-url").textContent = `${location.origin}/board`;
   document.getElementById("set-tg-token").value = settings.telegram_bot_token;
   document.getElementById("set-tg-chat").value = settings.telegram_chat_id;
@@ -6930,7 +6945,6 @@ async function loadDevices() {
     state.devices = await api("/api/settings/devices");
     status.textContent = `Найдено устройств: ${state.devices.length}`;
     renderBindings(await api("/api/tables"));
-    renderDeviceRows(await api("/api/devices"));
   } catch (error) {
     status.textContent = "";
     showToast(error.message);
@@ -7048,6 +7062,7 @@ const TAB_LOADERS = {
   users: refreshUsers,
   clients: refreshClientsTab,
   cashdesk: refreshCashdeskTab,
+  devices: refreshDevicesTab,
 };
 
 // Вкладки с формами не перезагружаем по таймеру, чтобы не мешать вводу.
@@ -7413,7 +7428,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
       nameInput.value = "";
       showToast("Устройство добавлено — выберите ему реле", true);
-      renderDeviceRows(await api("/api/devices"));
+      await refreshDevicesTab();
     } catch (error) {
       showToast(error.message);
     }

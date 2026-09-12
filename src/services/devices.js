@@ -41,15 +41,28 @@ export function phaseOf(device, now = Date.now()) {
   return { on, switchesIn: Math.ceil(((on ? work : period) - pos) / 1000) };
 }
 
-function toOut(row, now) {
+// Реле, которые не ответили на последнюю команду, — своё множество у
+// каждой базы. По нему интерфейс отличает «реле молчит» от обычной
+// задержки до ближайшего тика, а журнал ошибок получает одну запись,
+// а не по одной каждые 30 секунд.
+const failing = new WeakMap();
+
+function failedSet(db) {
+  let set = failing.get(db);
+  if (!set) failing.set(db, (set = new Set()));
+  return set;
+}
+
+function toOut(db, row, now) {
   const phase = phaseOf(row, now);
   return {
     ...row,
     cycle_on: Boolean(row.cycle_on),
     is_on: Boolean(row.is_on),
-    // Чего требует цикл. Расходится с is_on — значит, реле не ответило и
-    // тик будет пробовать снова; интерфейс так и говорит.
+    // Чего требует цикл. Расходится с is_on — либо ближайший тик ещё не
+    // дошёл (до 30 секунд), либо реле не отвечает — см. relay_error.
     should_be_on: phase.on,
+    relay_error: failedSet(db).has(row.id),
     switches_in_seconds: phase.switchesIn,
   };
 }
@@ -59,14 +72,14 @@ export function listDevices(db, now = Date.now()) {
   return db
     .prepare(`SELECT ${FIELDS} FROM devices ORDER BY id`)
     .all()
-    .map((row) => toOut(row, now));
+    .map((row) => toOut(db, row, now));
 }
 
 /** @param {import("node:sqlite").DatabaseSync} db @param {number} id */
 export function getDevice(db, id) {
   const row = db.prepare(`SELECT ${FIELDS} FROM devices WHERE id = ?`).get(id);
   if (!row) throw new NotFoundError("Устройство не найдено");
-  return toOut(row);
+  return toOut(db, row, Date.now());
 }
 
 function parseFields(data) {
@@ -159,11 +172,14 @@ export async function deleteDevice(db, id) {
 
 /** Щёлкает реле и запоминает результат; ошибку реле показывает как есть. */
 async function applyPower(db, id, on) {
+  const failed = failedSet(db);
   try {
     await getDeviceController(db).setLight(id, on);
   } catch (error) {
+    failed.add(id);
     throw new ConflictError(error.message);
   }
+  failed.delete(id);
   db.prepare("UPDATE devices SET is_on = ? WHERE id = ?").run(on ? 1 : 0, id);
 }
 
@@ -204,10 +220,6 @@ export async function setDeviceCycle(db, id, on, now = Date.now()) {
   return getDevice(db, id);
 }
 
-// Реле, которое не отвечает, пишем в журнал ошибок один раз, а не каждые
-// 30 секунд, пока оно не оживёт.
-const failing = new WeakMap();
-
 /**
  * Приводит реле к тому, что требует цикл. Вызывается по таймеру и при
  * старте программы.
@@ -216,21 +228,18 @@ const failing = new WeakMap();
  */
 export async function runDeviceCycles(db, now = Date.now()) {
   const rows = db.prepare(`SELECT ${FIELDS} FROM devices WHERE cycle_on = 1`).all();
-  let failed = failing.get(db);
-  if (!failed) failing.set(db, (failed = new Set()));
+  const failed = failedSet(db);
   let switched = 0;
   for (const row of rows) {
     const { on } = phaseOf(row, now);
     if (on === Boolean(row.is_on)) continue;
+    const wasFailing = failed.has(row.id);
     try {
       await applyPower(db, row.id, on);
       switched += 1;
-      failed.delete(row.id);
     } catch (error) {
-      if (!failed.has(row.id)) {
-        failed.add(row.id);
-        logServerError(new Error(`Устройство «${row.name}»: ${error.message}`));
-      }
+      // Молчащее реле — одна запись в журнал ошибок, пока не оживёт.
+      if (!wasFailing) logServerError(new Error(`Устройство «${row.name}»: ${error.message}`));
     }
   }
   return { switched };
