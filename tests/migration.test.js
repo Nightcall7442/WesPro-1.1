@@ -12,8 +12,26 @@ import path from "node:path";
 
 import { createDatabase } from "../src/db.js";
 
+/**
+ * Убирает файл базы после теста. Открытую базу Windows удалить не даёт
+ * (EPERM), поэтому сначала закрываем всё, что открывали.
+ */
+function cleanup(file, dbs) {
+  for (const db of dbs) {
+    try {
+      db.close();
+    } catch {
+      // уже закрыта
+    }
+  }
+  for (const suffix of ["", "-wal", "-shm"]) {
+    fs.rmSync(`${file}${suffix}`, { force: true });
+  }
+}
+
 test("миграция ролей: старая база (admin/cashier) обновляется без потери данных", () => {
   const file = path.join(os.tmpdir(), `migration-test-${Date.now()}.db`);
+  const opened = [];
   try {
     // Имитируем базу в старом формате: users с прежним CHECK + связанная
     // смена, ссылающаяся на пользователя (как в реальных установках).
@@ -45,6 +63,7 @@ test("миграция ролей: старая база (admin/cashier) обн�
 
     // createDatabase должна доехать без исключений и сама пересобрать users.
     const db = createDatabase(file);
+    opened.push(db);
 
     const schema = db
       .prepare("SELECT sql FROM sqlite_master WHERE name = 'users'")
@@ -69,16 +88,15 @@ test("миграция ролей: старая база (admin/cashier) обн�
     assert.equal(owner.role, "owner");
 
     // Повторный вызов createDatabase на уже смигрированной базе — no-op.
-    assert.doesNotThrow(() => createDatabase(file));
+    assert.doesNotThrow(() => opened.push(createDatabase(file)));
   } finally {
-    fs.rmSync(file, { force: true });
-    fs.rmSync(`${file}-wal`, { force: true });
-    fs.rmSync(`${file}-shm`, { force: true });
+    cleanup(file, opened);
   }
 });
 
 test("миграция plan_elements: старая база (только wall/door) принимает мебель", () => {
   const file = path.join(os.tmpdir(), `migration-plan-test-${Date.now()}.db`);
+  const opened = [];
   try {
     // Имитируем базу до появления мебели в редакторе зала.
     const raw = new DatabaseSync(file, { enableForeignKeyConstraints: true });
@@ -99,6 +117,7 @@ test("миграция plan_elements: старая база (только wall/d
     raw.close();
 
     const db = createDatabase(file);
+    opened.push(db);
 
     const schema = db
       .prepare("SELECT sql FROM sqlite_master WHERE name = 'plan_elements'")
@@ -118,16 +137,15 @@ test("миграция plan_elements: старая база (только wall/d
         .run("sofa", 2, 2, 3, 1, new Date().toISOString())
     );
 
-    assert.doesNotThrow(() => createDatabase(file));
+    assert.doesNotThrow(() => opened.push(createDatabase(file)));
   } finally {
-    fs.rmSync(file, { force: true });
-    fs.rmSync(`${file}-wal`, { force: true });
-    fs.rmSync(`${file}-shm`, { force: true });
+    cleanup(file, opened);
   }
 });
 
 test("миграция ролей: база с developer/owner дополняется ролью manager", () => {
   const file = path.join(os.tmpdir(), `migration-manager-${Date.now()}.db`);
+  const opened = [];
   try {
     // База предыдущей версии: роли уже расширены до developer/owner,
     // но управляющего (manager) в CHECK ещё нет.
@@ -149,6 +167,7 @@ test("миграция ролей: база с developer/owner дополняе�
     raw.close();
 
     const db = createDatabase(file);
+    opened.push(db);
     const schema = db
       .prepare("SELECT sql FROM sqlite_master WHERE name = 'users'")
       .get().sql;
@@ -165,10 +184,8 @@ test("миграция ролей: база с developer/owner дополняе�
     );
 
     // Повторный вызов — no-op.
-    assert.doesNotThrow(() => createDatabase(file));
+    assert.doesNotThrow(() => opened.push(createDatabase(file)));
   } finally {
-    for (const suffix of ["", "-wal", "-shm"]) {
-      fs.rmSync(`${file}${suffix}`, { force: true });
-    }
+    cleanup(file, opened);
   }
 });
