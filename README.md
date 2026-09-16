@@ -1,5 +1,12 @@
 # 🎱 Система управления бильярдным клубом (Node.js)
 
+![Node.js](https://img.shields.io/badge/node-%3E%3D22.13-339933?logo=node.js&logoColor=white)
+![Express](https://img.shields.io/badge/express-4.x-000000?logo=express&logoColor=white)
+![SQLite](https://img.shields.io/badge/sqlite-node%3Asqlite-003B57?logo=sqlite&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.15.0-blue)
+![Tests](https://img.shields.io/badge/tests-351%20passing-brightgreen)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
+
 Ядро системы: столы, тарифы, сеансы с посекундной тарификацией, живой
 таймер на дашборде, история сеансов, журнал событий и абстракция
 управления освещением (сейчас Mock, позже — реле MOES).
