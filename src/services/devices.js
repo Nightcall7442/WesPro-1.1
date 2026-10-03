@@ -18,11 +18,16 @@ import {
   relayLastSeen,
   relayOnline,
 } from "./lighting.js";
+import { localKeyFor } from "./tuya-keys.js";
 
+// Локальный ключ реле Tuya не отдаём: список устройств видят все
+// сотрудники, а ключ — как пароль. Наружу — только «ключ сохранён».
 const FIELDS =
   "id, name, type, positions, position, work_minutes, rest_minutes, cycle_on, " +
   "cycle_started_at, is_on, light_kind, light_host, light_channel, light_on_url, " +
-  "light_off_url, tuya_device_id, tuya_switch_code, net_ip, net_mac, created_at";
+  "light_off_url, tuya_device_id, tuya_switch_code, tuya_version, " +
+  "(tuya_local_key IS NOT NULL AND tuya_local_key != '') AS has_local_key, " +
+  "net_ip, net_mac, created_at";
 
 /**
  * Виды устройств. Кондиционер, вытяжка и приток — выключатель с циклом.
@@ -86,6 +91,7 @@ function toOut(db, row, now) {
     positions: parsePositions(row.positions),
     cycle_on: Boolean(row.cycle_on),
     is_on: Boolean(row.is_on),
+    has_local_key: Boolean(row.has_local_key),
     // Чего требует цикл. Расходится с is_on — либо ближайший тик ещё не
     // дошёл (до 30 секунд), либо реле не отвечает — см. relay_error.
     should_be_on: phase.on,
@@ -158,8 +164,8 @@ export function createDevice(db, data = {}) {
     .prepare(
       `INSERT INTO devices (name, type, positions, work_minutes, rest_minutes, light_kind,
          light_host, light_channel, light_on_url, light_off_url, tuya_device_id,
-         tuya_switch_code, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         tuya_switch_code, tuya_local_key, tuya_version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       name,
@@ -174,12 +180,17 @@ export function createDevice(db, data = {}) {
       relay.light_off_url,
       relay.tuya_device_id,
       relay.tuya_switch_code,
+      localKeyFor(db, "devices", null, relay),
+      relay.tuya_version,
       utcNow()
     );
   return getDevice(db, Number(lastInsertRowid));
 }
 
-/** Полная замена полей (интерфейс всегда шлёт всю строку). */
+/**
+ * Полная замена полей (интерфейс всегда шлёт всю строку). Исключение —
+ * локальный ключ реле: его интерфейс не знает, пустой — оставить прежний.
+ */
 export function updateDevice(db, id, data = {}) {
   getDevice(db, id);
   const { name, type, positions, work, rest, relay } = parseFields(data);
@@ -194,7 +205,8 @@ export function updateDevice(db, id, data = {}) {
     `UPDATE devices
        SET name = ?, type = ?, positions = ?, work_minutes = ?, rest_minutes = ?,
            light_kind = ?, light_host = ?, light_channel = ?, light_on_url = ?,
-           light_off_url = ?, tuya_device_id = ?, tuya_switch_code = ?
+           light_off_url = ?, tuya_device_id = ?, tuya_switch_code = ?,
+           tuya_local_key = ?, tuya_version = ?
      WHERE id = ?`
   ).run(
     name,
@@ -209,6 +221,8 @@ export function updateDevice(db, id, data = {}) {
     relay.light_off_url,
     relay.tuya_device_id,
     relay.tuya_switch_code,
+    localKeyFor(db, "devices", id, relay),
+    relay.tuya_version,
     id
   );
   return getDevice(db, id);

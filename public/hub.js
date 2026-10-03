@@ -24,7 +24,13 @@ const TAB_TITLES = {
   settings: "Настройки панели",
 };
 
-const RELAY_LABELS = { tuya: "Tuya / MOES", tasmota: "Tasmota", shelly: "Shelly", url: "Своё устройство" };
+const RELAY_LABELS = {
+  tuya: "Tuya / MOES",
+  tuya_local: "Tuya / MOES по сети",
+  tasmota: "Tasmota",
+  shelly: "Shelly",
+  url: "Своё устройство",
+};
 function relayKindLabel(kind) {
   return RELAY_LABELS[kind] ?? kind ?? "—";
 }

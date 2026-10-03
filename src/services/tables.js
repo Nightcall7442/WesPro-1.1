@@ -4,10 +4,14 @@ import { utcNow, withTransaction } from "../db.js";
 import { ConflictError, NotFoundError } from "./errors.js";
 import { JournalEvent, logEvent } from "./journal.js";
 import { parseRelayBinding } from "./lighting.js";
+import { localKeyFor } from "./tuya-keys.js";
 
+// Локальный ключ реле Tuya сюда не входит намеренно: столы видят все
+// сотрудники, а ключ — как пароль. Наружу — только «ключ сохранён».
 const TABLE_FIELDS =
   "id, name, status, created_at, tuya_device_id, tuya_switch_code, " +
   "light_kind, light_host, light_channel, light_on_url, light_off_url, " +
+  "tuya_version, (tuya_local_key IS NOT NULL AND tuya_local_key != '') AS has_local_key, " +
   "net_ip, net_mac, pos_x, pos_y, size_w, size_h, kind, is_active";
 
 // Тип точки: у всех общие тарифы, сеансы и биллинг — отличается только
@@ -78,15 +82,18 @@ export function setTableLayout(db, tableId, layout) {
  * @param {number} tableId
  * @param {{kind?: string|null, device_id?: string|null, switch_code?: string|null,
  *          host?: string|null, channel?: number|null,
- *          on_url?: string|null, off_url?: string|null}} data
+ *          on_url?: string|null, off_url?: string|null,
+ *          local_key?: string|null, version?: string|null}} data
  */
 export function setTableDevice(db, tableId, data = {}) {
   const table = getTable(db, tableId);
   const relay = parseRelayBinding(data);
+  const localKey = localKeyFor(db, "tables", table.id, relay);
   db.prepare(
     `UPDATE tables
        SET light_kind = ?, tuya_device_id = ?, tuya_switch_code = ?,
-           light_host = ?, light_channel = ?, light_on_url = ?, light_off_url = ?
+           light_host = ?, light_channel = ?, light_on_url = ?, light_off_url = ?,
+           tuya_local_key = ?, tuya_version = ?
      WHERE id = ?`
   ).run(
     relay.light_kind,
@@ -96,6 +103,8 @@ export function setTableDevice(db, tableId, data = {}) {
     relay.light_channel,
     relay.light_on_url,
     relay.light_off_url,
+    localKey,
+    relay.tuya_version,
     table.id
   );
   return getTable(db, table.id);

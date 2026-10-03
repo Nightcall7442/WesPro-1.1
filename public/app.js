@@ -19,6 +19,8 @@ const state = {
   tariffChoice: new Map(), // table_id -> выбранный tariff_id в селекте
   clientDraft: new Map(),  // table_id -> набранный текст в поле клиента
   devices: [],         // устройства Tuya для вкладки «Настройки»
+  tuyaLan: [],         // реле Tuya, найденные в локальной сети: {id, ip, version}
+  tuyaCloud: new Map(), // реле, чьи ключи уже взяты из облака: id -> {name, ip, version}
   features: {},        // какие новшества включены клубу (панель сети решает)
   hallDevices: [],     // кондиционер, вытяжка, приток — вкладка «Устройства»
   devicesFetchedAt: 0, // когда их ответ пришёл: от него идёт отсчёт на плашках
@@ -1794,6 +1796,10 @@ function relayIdentity(relay) {
     return `${relayKindLabel(kind)}${channel ? ` · канал ${channel}` : ""}`;
   }
   if (kind === "url") return "Своё устройство";
+  if (kind === "tuya_local") {
+    const code = relay.switch_code ?? relay.tuya_switch_code ?? "switch_1";
+    return `Tuya / MOES по сети${code !== "switch_1" ? ` · ${code.replace("switch_", "канал ")}` : ""}`;
+  }
   return `Tuya / MOES ${relay.device_id ?? relay.tuya_device_id ?? ""}`.trim();
 }
 
@@ -6125,10 +6131,45 @@ function buildDeviceSelect(current) {
   return select;
 }
 
+/**
+ * Локальный ключ Tuya, как его вставили. Ключ берут из JSON-ответа
+ * iot.tuya.com, а там кавычка внутри ключа выглядит как \", обратная
+ * черта — как \\, «<» — как \u003c. Переписывать это руками — верный
+ * способ потерять символ, поэтому принимаем и строку целиком
+ * («"local_key": "…",»), и значение в кавычках — и разбираем как JSON.
+ */
+function normalizeLocalKey(raw) {
+  let text = String(raw ?? "").trim();
+  const line = /"local_key"\s*:\s*("(?:[^"\\]|\\.)*")/.exec(text);
+  if (line) text = line[1];
+  // Хвостовая запятая из JSON — только если без неё ключ как раз сходится:
+  // запятая бывает и законным символом ключа.
+  else if (/^".*",$/.test(text) || (text.length === 17 && text.endsWith(","))) {
+    text = text.slice(0, -1);
+  }
+  if (text.length > 16 && /^".*"$/.test(text)) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      // не JSON — оставляем как есть, сервер скажет, что не так
+    }
+  }
+  if (text.length > 16 && text.includes("\\")) {
+    try {
+      const unescaped = JSON.parse(`"${text}"`);
+      if (unescaped.length === 16) return unescaped;
+    } catch {
+      // то же
+    }
+  }
+  return text;
+}
+
 /** Типы реле: свет над столом и устройства зала управляются одними и теми же. */
 const LIGHT_KINDS = [
   ["", "— без реле —"],
   ["tuya", "Tuya / MOES (через облако)"],
+  ["tuya_local", "Tuya / MOES по локальной сети (без облака)"],
   ["tasmota", "Tasmota — Sonoff и др. (в локальной сети)"],
   ["shelly", "Shelly (в локальной сети)"],
   ["url", "Своё устройство — два адреса"],
@@ -6137,8 +6178,10 @@ const LIGHT_KINDS = [
 /**
  * Ячейки привязки к реле — общие для стола и устройства зала: тип
  * устройства и поля под него. У облачных Tuya это список устройств и
- * канал, у локальных — адрес в сети, у «своего устройства» — два адреса.
- * save зовётся при каждом изменении; payload() — то, что шлём серверу.
+ * канал, у локальных — адрес в сети, у «своего устройства» — два адреса,
+ * у Tuya по локальной сети — ID, IP, локальный ключ, канал и версия.
+ * save зовётся при каждом изменении и возвращает true, если сервер
+ * принял; payload() — то, что шлём серверу.
  */
 function buildRelayFields(item, save) {
   const kindCell = document.createElement("td");
@@ -6152,6 +6195,8 @@ function buildRelayFields(item, save) {
   // Старые базы: тип не записан, но устройство Tuya привязано.
   kindSelect.value = item.light_kind ?? (item.tuya_device_id ? "tuya" : "");
   kindCell.append(kindSelect);
+  // Какой тип сейчас сохранён на сервере: «Тест» щёлкает именно его.
+  let savedKind = kindSelect.value;
 
   // Поля настройки — своя ячейка, содержимое зависит от типа.
   const settingsCell = document.createElement("td");
@@ -6190,6 +6235,64 @@ function buildRelayFields(item, save) {
   offInput.placeholder = "http://…/off";
   offInput.value = item.light_off_url ?? "";
 
+  // Tuya по локальной сети: ID и IP подставляются из поиска в сети, ключ
+  // — как пароль: сервер его не отдаёт, пустое поле — «оставить прежний».
+  const isLocalTuya = item.light_kind === "tuya_local";
+  const tlIdInput = document.createElement("input");
+  tlIdInput.type = "text";
+  tlIdInput.placeholder = "bf1234567890abcdefgh";
+  tlIdInput.title = "ID устройства — его видно в поиске реле в сети и в приложении Smart Life";
+  tlIdInput.value = isLocalTuya ? item.tuya_device_id ?? "" : "";
+  tlIdInput.setAttribute("list", "tuya-lan-list");
+  tlIdInput.spellcheck = false;
+  tlIdInput.size = 22;
+  const tlHostInput = document.createElement("input");
+  tlHostInput.type = "text";
+  tlHostInput.placeholder = "192.168.1.60";
+  tlHostInput.value = isLocalTuya ? item.light_host ?? "" : "";
+  tlHostInput.size = 14;
+  const tlKeyInput = document.createElement("input");
+  tlKeyInput.type = "password";
+  tlKeyInput.autocomplete = "new-password";
+  tlKeyInput.title =
+    "16 символов. Можно вставить и всю строку из ответа Tuya: \"local_key\": \"…\"";
+  tlKeyInput.size = 18;
+  // Вставили строку из ответа Tuya или значение с экранированием — в
+  // поле оставляем уже чистый ключ.
+  tlKeyInput.addEventListener("change", () => {
+    tlKeyInput.value = normalizeLocalKey(tlKeyInput.value);
+  });
+  // Ключ этого реле уже взят из облака — сервер подставит его сам.
+  const cloudKey = () => state.tuyaCloud.has(tlIdInput.value.trim());
+  const keyPlaceholder = () => {
+    tlKeyInput.placeholder = item.has_local_key
+      ? "сохранён — оставьте пустым"
+      : cloudKey()
+        ? "возьмётся из облака — оставьте пустым"
+        : "16 символов";
+  };
+  keyPlaceholder();
+  const tlSwitchSelect = switchSelect.cloneNode(true);
+  tlSwitchSelect.value = item.tuya_switch_code ?? "switch_1";
+  const tlVersionSelect = document.createElement("select");
+  tlVersionSelect.title = "Версия протокола; «авто» — программа подберёт сама";
+  for (const [value, label] of [["", "авто"], ["3.1", "3.1"], ["3.3", "3.3"], ["3.4", "3.4"], ["3.5", "3.5"]]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    tlVersionSelect.append(option);
+  }
+  tlVersionSelect.value = isLocalTuya ? item.tuya_version ?? "" : "";
+  // Выбрали ID из найденных в сети — IP и версию знаем сами.
+  tlIdInput.addEventListener("input", () => {
+    const id = tlIdInput.value.trim();
+    keyPlaceholder();
+    const found = state.tuyaLan.find((d) => d.id === id) ?? state.tuyaCloud.get(id);
+    if (!found?.ip) return;
+    tlHostInput.value = found.ip;
+    if (found.version) tlVersionSelect.value = found.version;
+  });
+
   const wrap = (label, node) => {
     const box = document.createElement("label");
     box.className = "binding-field";
@@ -6202,45 +6305,119 @@ function buildRelayFields(item, save) {
   localFields.append(wrap("Адрес в сети", hostInput), wrap("Канал", channelInput));
   const urlFields = document.createElement("span");
   urlFields.append(wrap("Включить", onInput), wrap("Выключить", offInput));
-  settingsCell.append(tuyaFields, localFields, urlFields);
+  const tuyaLocalFields = document.createElement("span");
+  tuyaLocalFields.append(
+    wrap("ID устройства", tlIdInput),
+    wrap("IP", tlHostInput),
+    wrap("Локальный ключ", tlKeyInput),
+    wrap("Канал", tlSwitchSelect),
+    wrap("Версия", tlVersionSelect)
+  );
+  settingsCell.append(tuyaFields, tuyaLocalFields, localFields, urlFields);
 
   const applyKind = () => {
     const kind = kindSelect.value;
     tuyaFields.hidden = kind !== "tuya";
+    tuyaLocalFields.hidden = kind !== "tuya_local";
     localFields.hidden = kind !== "tasmota" && kind !== "shelly";
     urlFields.hidden = kind !== "url";
   };
   applyKind();
 
+  // У Tuya по сети обязательных полей несколько: пока не заполнены ID, IP
+  // и ключ (или он уже сохранён), не дёргаем сервер — он бы только ругался.
+  const ready = () =>
+    kindSelect.value !== "tuya_local" ||
+    (tlIdInput.value.trim() &&
+      tlHostInput.value.trim() &&
+      (tlKeyInput.value || item.has_local_key || cloudKey()));
+  const saveWhenReady = async () => {
+    if (!ready()) return;
+    const keySent = kindSelect.value === "tuya_local" && tlKeyInput.value;
+    // Ключ Tuya всегда ровно 16 символов; чаще всего при копировании
+    // теряется крайний символ — скажем сразу и понятно.
+    const keyLength = normalizeLocalKey(tlKeyInput.value).length;
+    if (keySent && keyLength !== 16) {
+      showToast(
+        `Локальный ключ — ровно 16 символов, а вписано ${keyLength}. ` +
+          "Проще всего скопировать из ответа Tuya всю строку \"local_key\": \"…\" и вставить её целиком."
+      );
+      return;
+    }
+    const ok = await save();
+    if (ok) savedKind = kindSelect.value;
+    if (ok && keySent) {
+      // Ключ принят — в поле его больше не держим.
+      item.has_local_key = true;
+      tlKeyInput.value = "";
+      keyPlaceholder();
+    }
+  };
+
   kindSelect.addEventListener("change", () => {
     applyKind();
     // Пустой тип сохраняем сразу — это «отвязать»; остальное после
     // заполнения полей, иначе сервер справедливо отругает за пустой адрес.
-    if (!kindSelect.value) save();
+    if (!kindSelect.value) {
+      save().then((ok) => {
+        if (ok) savedKind = "";
+      });
+    }
   });
+  const saveAndRemember = async () => {
+    if (await save()) savedKind = kindSelect.value;
+  };
   for (const field of [deviceSelect, switchSelect, hostInput, channelInput, onInput, offInput]) {
-    field.addEventListener("change", save);
+    field.addEventListener("change", saveAndRemember);
+  }
+  for (const field of [tlIdInput, tlHostInput, tlKeyInput, tlSwitchSelect, tlVersionSelect]) {
+    field.addEventListener("change", saveWhenReady);
   }
 
-  const payload = () => ({
-    kind: kindSelect.value || null,
-    device_id: deviceSelect.value || null,
-    switch_code: switchSelect.value,
-    host: hostInput.value,
-    channel: Number(channelInput.value),
-    on_url: onInput.value,
-    off_url: offInput.value,
-  });
-  return { kindCell, settingsCell, payload };
+  const payload = () =>
+    kindSelect.value === "tuya_local"
+      ? {
+          kind: "tuya_local",
+          device_id: tlIdInput.value.trim(),
+          host: tlHostInput.value.trim(),
+          local_key: normalizeLocalKey(tlKeyInput.value),
+          switch_code: tlSwitchSelect.value,
+          version: tlVersionSelect.value,
+        }
+      : {
+          kind: kindSelect.value || null,
+          device_id: deviceSelect.value || null,
+          switch_code: switchSelect.value,
+          host: hostInput.value,
+          channel: Number(channelInput.value),
+          on_url: onInput.value,
+          off_url: offInput.value,
+        };
+  /** Сохранена ли на сервере та привязка, что выбрана в строке. */
+  const isSaved = () => kindSelect.value === savedKind;
+  // Строку устройства сохраняют и другие поля (название, цикл) — тогда
+  // привязка уезжает на сервер вместе с ними.
+  const markSaved = () => {
+    savedKind = kindSelect.value;
+  };
+  return { kindCell, settingsCell, payload, isSaved, markSaved };
 }
 
-/** Кнопка «Тест»: щёлкнуть реле на две секунды. powerUrl принимает {on}. */
-function buildTestButton(powerUrl) {
+/**
+ * Кнопка «Тест»: щёлкнуть реле на две секунды. powerUrl принимает {on}.
+ * isSaved — сохранена ли привязка: иначе щёлкнуло бы прежнее реле (или
+ * никакое), и «Тест» молча «прошёл» бы, ничего не проверив.
+ */
+function buildTestButton(powerUrl, isSaved = () => true) {
   const testBtn = document.createElement("button");
   testBtn.className = "mini";
   testBtn.textContent = "Тест";
   testBtn.title = "Включить на 2 секунды";
   testBtn.addEventListener("click", async () => {
+    if (!isSaved()) {
+      showToast("Привязка ещё не сохранена: заполните все поля и выйдите из последнего (Tab) — потом «Тест».");
+      return;
+    }
     testBtn.disabled = true;
     try {
       await api(powerUrl, { method: "POST", body: JSON.stringify({ on: true }) });
@@ -6272,14 +6449,16 @@ function buildBindingRow(table) {
         body: JSON.stringify(relay.payload()),
       });
       showToast(`${table.name}: привязка сохранена`, true);
+      return true;
     } catch (error) {
       showToast(error.message);
+      return false;
     }
   };
   const relay = buildRelayFields(table, save);
 
   const testCell = document.createElement("td");
-  testCell.append(buildTestButton(`/api/tables/${table.id}/light`));
+  testCell.append(buildTestButton(`/api/tables/${table.id}/light`, relay.isSaved));
 
   tr.append(nameCell, relay.kindCell, relay.settingsCell, testCell);
   return tr;
@@ -6352,8 +6531,11 @@ function buildDeviceRow(device) {
         }),
       });
       showToast(`${nameInput.value.trim()}: сохранено`, true);
+      relay.markSaved();
+      return true;
     } catch (error) {
       showToast(error.message);
+      return false;
     }
   };
   const relay = buildRelayFields(device, save);
@@ -6379,7 +6561,7 @@ function buildDeviceRow(device) {
       showToast(error.message);
     }
   });
-  actionsCell.append(buildTestButton(`/api/devices/${device.id}/power`), " ", del);
+  actionsCell.append(buildTestButton(`/api/devices/${device.id}/power`, relay.isSaved), " ", del);
 
   const cell = (node) => {
     const td = document.createElement("td");
@@ -6467,6 +6649,9 @@ async function refreshSettings() {
   showDriverStatus(settings);
   renderLogoPreview(settings.club_logo);
   setupLogoScale(settings.club_logo_height);
+  // Подсказки по реле из облака — до строк привязки: от них зависят
+  // подсказки в поле ключа.
+  await loadTuyaCloud().catch(() => {});
   renderBindings(tables);
   renderDeviceRows(devices);
   document.getElementById("board-url").textContent = `${location.origin}/board`;
@@ -7456,6 +7641,107 @@ async function saveConnectionSettings() {
   }
 }
 
+/**
+ * Подсказки по реле Tuya в «Настройках»: найденные в сети и те, чьи ключи
+ * взяты из облака, — с именами из Smart Life (по ним видно, какое реле
+ * какое). Поле «ID устройства» подсказывает их, а при выборе IP и версия
+ * подставляются сами.
+ */
+function renderTuyaHints() {
+  const byId = new Map();
+  for (const [id, info] of state.tuyaCloud) byId.set(id, { id, ...info, key: true });
+  for (const d of state.tuyaLan) byId.set(d.id, { ...byId.get(d.id), ...d });
+  const items = [...byId.values()];
+  const describe = (d) =>
+    [d.name, d.ip, d.version ? `версия ${d.version}` : null].filter(Boolean).join(" · ");
+  document.getElementById("tuya-lan-list").replaceChildren(
+    ...items.map((d) => {
+      const option = document.createElement("option");
+      option.value = d.id;
+      option.label = describe(d);
+      return option;
+    })
+  );
+  const list = document.getElementById("tuya-lan-found");
+  list.replaceChildren(
+    ...items.map((d) => {
+      const li = document.createElement("li");
+      const extra = [
+        d.ip ? `в сети: ${d.ip}${d.version ? `, версия ${d.version}` : ""}` : "в сети не слышно",
+        d.key ? "ключ получен" : null,
+        d.bound_to?.length ? `привязано: ${d.bound_to.join(", ")}` : null,
+      ].filter(Boolean);
+      li.textContent = `${d.name ? `${d.name} — ` : ""}${d.id} — ${extra.join(" — ")}`;
+      return li;
+    })
+  );
+  list.hidden = !items.length;
+}
+
+/** Реле, чьи ключи уже взяты из облака раньше (без самих ключей). */
+async function loadTuyaCloud() {
+  if (state.user?.role !== "developer") return;
+  const rows = await api("/api/settings/tuya-keys");
+  state.tuyaCloud = new Map(rows.map((d) => [d.id, d]));
+  renderTuyaHints();
+}
+
+/**
+ * «Взять ключи из облака Tuya»: облако по ключам проекта отдаёт локальные
+ * ключи всех реле. Они остаются на сервере — уже привязанные столы
+ * получают их сразу, при новой привязке ключ подставляется сам.
+ */
+async function fetchTuyaKeys() {
+  const status = document.getElementById("devices-status");
+  const button = document.getElementById("fetch-tuya-keys");
+  button.disabled = true;
+  status.textContent = "Спрашиваем облако Tuya…";
+  try {
+    const result = await api("/api/settings/tuya-keys", { method: "POST" });
+    for (const d of result.devices) state.tuyaCloud.set(d.id, d);
+    renderTuyaHints();
+    status.textContent =
+      `Ключи получены: ${result.devices.length}` +
+      (result.updated ? `, обновлено привязок: ${result.updated}` : "") +
+      (result.failed.length ? `, не отдало облако: ${result.failed.length}` : "") +
+      ". Выберите ID в строке стола — ключ вписывать не нужно.";
+    showToast(`Ключи реле получены: ${result.devices.length}`, true);
+    // Привязки могли получить новый ключ — перерисуем строки с подсказками.
+    renderBindings(await api("/api/tables"));
+    renderDeviceRows(await api("/api/devices"));
+  } catch (error) {
+    status.textContent = "";
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/**
+ * Поиск реле Tuya/MOES в локальной сети: кто отозвался — ID, IP и версия.
+ * Найденные ID подсказываются в поле «ID устройства», а при выборе IP и
+ * версия подставляются сами.
+ */
+async function findTuyaLan() {
+  const status = document.getElementById("devices-status");
+  const button = document.getElementById("find-tuya-lan");
+  button.disabled = true;
+  status.textContent = "Слушаем сеть до 10 секунд — реле сообщают о себе раз в несколько секунд…";
+  try {
+    state.tuyaLan = await api("/api/settings/tuya-lan");
+    renderTuyaHints();
+    status.textContent = state.tuyaLan.length
+      ? `Найдено реле Tuya: ${state.tuyaLan.length}. Выберите ID в строке стола — IP и версия подставятся сами.`
+      : "Реле Tuya в сети не нашлось: проверьте, что они включены и в той же сети, " +
+        "и что брандмауэр пропускает UDP 6666, 6667, 7000 (start-club.bat от администратора).";
+  } catch (error) {
+    status.textContent = "";
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadDevices() {
   const status = document.getElementById("devices-status");
   status.textContent = "Загружаем…";
@@ -8047,6 +8333,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     .getElementById("save-settings")
     .addEventListener("click", saveConnectionSettings);
   document.getElementById("load-devices").addEventListener("click", loadDevices);
+  document.getElementById("find-tuya-lan").addEventListener("click", findTuyaLan);
+  document.getElementById("fetch-tuya-keys").addEventListener("click", fetchTuyaKeys);
   document.getElementById("sync-now-btn").addEventListener("click", syncNow);
 
   setInterval(tick, TICK_MS);

@@ -5,39 +5,61 @@
 //   mock — состояние в памяти процесса (по умолчанию, ничего не требует);
 //   tuya — реальные Wi-Fi реле Tuya/MOES (WM4LT1 и совместимые) через
 //          Tuya Cloud API.
+// Кроме облака, у каждого стола может быть своё локальное реле: Tasmota,
+// Shelly, «своё устройство» (lighting-http.js) или то же Tuya/MOES, но по
+// локальной сети, без облака (lighting-tuya-local.js).
 //
 // Драйвер, ключи облака и привязка столов к реле настраиваются во вкладке
 // «Настройки» интерфейса и хранятся в базе; initLighting перечитывает их
 // при старте сервера и после каждого сохранения настроек.
 
 import { ConflictError, NotFoundError } from "./errors.js";
+import { JournalEvent, logEvent } from "./journal.js";
 import { getSettings } from "./settings.js";
 import { HttpLightingController, HTTP_KINDS } from "./lighting-http.js";
 import { TuyaLightingController } from "./lighting-tuya.js";
+import {
+  TUYA_LOCAL_VERSIONS,
+  TuyaLocalLightingController,
+  subscribeTuyaAnnouncements,
+} from "./lighting-tuya-local.js";
 
 /** Чем может управляться реле: свет над столом или устройство зала. */
-export const LIGHT_KINDS = new Set(["tuya", "tasmota", "shelly", "url"]);
+export const LIGHT_KINDS = new Set(["tuya", "tuya_local", "tasmota", "shelly", "url"]);
+
+// Поиск Tuya-реле в сети — для «Настроек»: HTTP-слой знает только этот модуль.
+export { discoverTuyaDevices, recentTuyaAnnouncements } from "./lighting-tuya-local.js";
+
+/** Реле, у которых IP — это адрес привязки: по нему их и дёргают. */
+const LAN_KINDS = new Set(["tasmota", "shelly", "tuya_local"]);
 
 /**
  * Разбор и проверка привязки к реле — одна на столы и на устройства зала.
  *
  * tuya — облако Tuya/MOES: нужны id устройства и канал (switch_1 …);
+ * tuya_local — то же реле Tuya/MOES, но по локальной сети: id, IP,
+ *   локальный ключ и канал; версия протокола — по желанию;
  * tasmota и shelly — реле в локальной сети: адрес (IP) и номер канала;
  * url — «своё устройство»: два адреса, включить и выключить.
  * Пустой kind — «реле не подключено»: это не ошибка.
  *
+ * Локальный ключ — как пароль: наружу не отдаётся, а пустое поле значит
+ * «оставить сохранённый» (tuya_local_key: null; см. localKeyToStore).
+ *
  * @param {{kind?: string|null, device_id?: string|null, switch_code?: string|null,
  *          host?: string|null, channel?: number|null,
- *          on_url?: string|null, off_url?: string|null}} data
+ *          on_url?: string|null, off_url?: string|null,
+ *          local_key?: string|null, version?: string|null}} data
  * @returns {{light_kind: string|null, tuya_device_id: string|null,
  *   tuya_switch_code: string|null, light_host: string|null, light_channel: number,
- *   light_on_url: string|null, light_off_url: string|null}} колонки как в базе
+ *   light_on_url: string|null, light_off_url: string|null,
+ *   tuya_local_key: string|null, tuya_version: string|null}} колонки как в базе
  */
 export function parseRelayBinding(data = {}) {
   const kind = String(data.kind ?? "").trim().toLowerCase() || null;
   if (kind !== null && !LIGHT_KINDS.has(kind)) {
     throw new ConflictError(
-      `Неизвестный тип устройства «${kind}» (tuya, tasmota, shelly или url)`
+      `Неизвестный тип устройства «${kind}» (tuya, tuya_local, tasmota, shelly или url)`
     );
   }
 
@@ -47,6 +69,8 @@ export function parseRelayBinding(data = {}) {
   const onUrl = String(data.on_url ?? "").trim() || null;
   const offUrl = String(data.off_url ?? "").trim() || null;
   const channel = Number(data.channel ?? 0);
+  const localKey = String(data.local_key ?? "").trim() || null;
+  const version = String(data.version ?? "").trim() || null;
 
   if (code !== null && !/^switch_[1-4]$/.test(code)) {
     throw new ConflictError(`Недопустимый канал реле «${code}» (switch_1 … switch_4)`);
@@ -57,7 +81,26 @@ export function parseRelayBinding(data = {}) {
   if (kind === "tuya" && !deviceId) {
     throw new ConflictError("Для Tuya/MOES выберите устройство из списка");
   }
-  if ((kind === "tasmota" || kind === "shelly") && !host) {
+  if (kind === "tuya_local") {
+    if (!deviceId) {
+      throw new ConflictError("Укажите ID устройства Tuya — его видно при поиске реле в сети");
+    }
+    if (!/^[A-Za-z0-9]{8,64}$/.test(deviceId)) {
+      throw new ConflictError("ID устройства Tuya — латинские буквы и цифры, например bf1234567890abcdefgh");
+    }
+    if (localKey !== null && !/^[\x21-\x7e]{16}$/.test(localKey)) {
+      throw new ConflictError("Локальный ключ — ровно 16 символов, без пробелов");
+    }
+    if (version !== null && !TUYA_LOCAL_VERSIONS.includes(version)) {
+      throw new ConflictError(
+        `Версия протокола: ${TUYA_LOCAL_VERSIONS.join(", ")} или пусто (подобрать самой программе)`
+      );
+    }
+    if (host !== null && /[/:]/.test(host)) {
+      throw new ConflictError("Для Tuya укажите только IP-адрес реле — например 192.168.1.50");
+    }
+  }
+  if (LAN_KINDS.has(kind) && !host) {
     throw new ConflictError(
       "Укажите адрес устройства в локальной сети — например 192.168.1.50"
     );
@@ -76,15 +119,38 @@ export function parseRelayBinding(data = {}) {
     }
   }
 
+  const tuyaFamily = kind === "tuya" || kind === "tuya_local";
   return {
     light_kind: kind,
-    tuya_device_id: kind === "tuya" ? deviceId : null,
-    tuya_switch_code: kind === "tuya" ? code ?? "switch_1" : null,
-    light_host: kind === "tasmota" || kind === "shelly" ? host : null,
+    tuya_device_id: tuyaFamily ? deviceId : null,
+    tuya_switch_code: tuyaFamily ? code ?? "switch_1" : null,
+    light_host: LAN_KINDS.has(kind) ? host : null,
     light_channel: channel,
     light_on_url: kind === "url" ? onUrl : null,
     light_off_url: kind === "url" ? offUrl : null,
+    tuya_local_key: kind === "tuya_local" ? localKey : null,
+    tuya_version: kind === "tuya_local" ? version : null,
   };
+}
+
+/**
+ * Какой локальный ключ записать в базу. Ключ — как пароль: интерфейс его
+ * не получает и присылает только новый, поэтому пустое поле значит
+ * «оставить сохранённый». У других типов реле ключ стирается.
+ * @param {{light_kind: string|null, tuya_local_key: string|null}} relay
+ *   результат parseRelayBinding
+ * @param {string|null} [storedKey] ключ, который уже лежит в базе
+ * @returns {string|null}
+ */
+export function localKeyToStore(relay, storedKey = null) {
+  if (relay.light_kind !== "tuya_local") return null;
+  const key = relay.tuya_local_key ?? storedKey ?? null;
+  if (!key) {
+    throw new ConflictError(
+      "Впишите локальный ключ реле (local_key, 16 символов) или нажмите «Взять ключи из облака Tuya»"
+    );
+  }
+  return key;
 }
 
 export class MockLightingController {
@@ -153,13 +219,16 @@ class CompositeLightingController {
   #resolveRow;
   #tuya;
   #http;
+  #tuyaLocal;
   #memory = new MockLightingController();
 
   /**
    * @param {(tableId: number) => object|null} resolveRow строка стола из базы
    * @param {TuyaLightingController|null} tuya
+   * @param {object} [tuyaLocalOptions] настройки драйвера Tuya по локальной
+   *   сети (в тестах — поддельный клиент протокола)
    */
-  constructor(resolveRow, tuya) {
+  constructor(resolveRow, tuya, tuyaLocalOptions = {}) {
     this.#resolveRow = resolveRow;
     this.#tuya = tuya;
     this.#http = new HttpLightingController((tableId) => {
@@ -173,11 +242,23 @@ class CompositeLightingController {
         off_url: row.light_off_url,
       };
     });
+    this.#tuyaLocal = new TuyaLocalLightingController((tableId) => {
+      const row = this.#resolveRow(tableId);
+      if (row?.light_kind !== "tuya_local") return null;
+      return {
+        device_id: row.tuya_device_id,
+        local_key: row.tuya_local_key,
+        host: row.light_host,
+        version: row.tuya_version,
+        switch_code: row.tuya_switch_code,
+      };
+    }, tuyaLocalOptions);
   }
 
   /** Кто отвечает за этот стол. */
   #backendFor(tableId) {
     const row = this.#resolveRow(tableId);
+    if (row?.light_kind === "tuya_local") return this.#tuyaLocal;
     if (row?.light_kind && HTTP_KINDS.includes(row.light_kind)) return this.#http;
     // Старые базы: тип не указан, но устройство Tuya привязано.
     if (this.#tuya && row?.tuya_device_id) return this.#tuya;
@@ -326,7 +407,7 @@ function normalizeMac(value) {
 }
 
 /**
- * IP и MAC реле, вписанные руками. У локального реле (Tasmota, Shelly)
+ * IP и MAC реле, вписанные руками. У локального реле (Tasmota, Shelly, Tuya по сети)
  * IP — это и есть адрес, по которому его дёргают: сменился адрес —
  * правят здесь, и реле снова отвечает. У облачных и «своих» IP — просто
  * запись.
@@ -342,7 +423,7 @@ export function setRelayNet(db, scope, id, data = {}) {
   const ip = String(data.ip ?? "").trim();
   if (/\s/.test(ip)) throw new ConflictError("В адресе не должно быть пробелов");
   const mac = normalizeMac(data.mac);
-  const local = row.light_kind === "tasmota" || row.light_kind === "shelly";
+  const local = LAN_KINDS.has(row.light_kind);
   if (local && !ip) {
     throw new ConflictError("У реле в локальной сети адрес нужен — без него его не дёрнуть");
   }
@@ -364,6 +445,8 @@ function stateFor(db) {
       devices: new MockLightingController(),
       tuyaClient: null,
       driver: "mock",
+      tuyaLocalOptions: {},
+      tuyaCloudFactory: null,
     };
     states.set(db, state);
   }
@@ -376,18 +459,25 @@ function stateFor(db) {
  * конфигурации сервер продолжает работать на Mock, чтобы касса не зависела
  * от облака.
  * @param {import("node:sqlite").DatabaseSync} db
+ * @param {{tuyaLocal?: object, tuyaCloud?: Function}} [options] tuyaLocal —
+ *   настройки драйвера Tuya по локальной сети, tuyaCloud — откуда брать
+ *   клиент облака для ключей (тесты подставляют поддельные)
  * @returns {Promise<{driver: "mock"|"tuya", error?: string}>}
  */
-export async function initLighting(db) {
+export async function initLighting(db, options = {}) {
   const settings = getSettings(db);
   const state = stateFor(db);
   state.tuyaClient = null;
+  // Запоминаем: после сохранения настроек драйвер пересоздаётся без них.
+  if (options.tuyaLocal) state.tuyaLocalOptions = options.tuyaLocal;
+  if (options.tuyaCloud) state.tuyaCloudFactory = options.tuyaCloud;
 
   // Строка стола (или устройства зала): по ней общий контроллер понимает,
   // куда слать команду. Колонки реле у devices названы как у tables —
   // ради вот этого общего кода.
   const RELAY_COLUMNS =
-    "tuya_device_id, tuya_switch_code, light_kind, light_host, light_channel, light_on_url, light_off_url";
+    "tuya_device_id, tuya_switch_code, light_kind, light_host, light_channel, light_on_url, " +
+    "light_off_url, tuya_local_key, tuya_version";
   const resolveRow = (tableId) =>
     db.prepare(`SELECT ${RELAY_COLUMNS} FROM tables WHERE id = ?`).get(tableId) ?? null;
   const resolveDeviceRow = (deviceId) =>
@@ -398,8 +488,9 @@ export async function initLighting(db) {
       return row ? { device_id: row.tuya_device_id, switch_code: row.tuya_switch_code } : null;
     });
 
-  // Локальные реле (Tasmota, Shelly, свой адрес) работают всегда: им не
-  // нужны ни ключи, ни интернет. Облако Tuya подключаем, если настроено.
+  // Локальные реле (Tasmota, Shelly, свой адрес, Tuya по сети) работают
+  // всегда: им не нужны ни облако, ни интернет. Облако Tuya подключаем,
+  // если настроено.
   let tuya = null;
   let error = null;
   if (settings.lighting_driver === "tuya") {
@@ -428,12 +519,13 @@ export async function initLighting(db) {
     }
   }
 
-  state.controller = new CompositeLightingController(resolveRow, tuya);
+  state.controller = new CompositeLightingController(resolveRow, tuya, state.tuyaLocalOptions);
   // Устройства зала (кондиционер, вытяжка, приток) — те же драйверы, но
   // свой контроллер: у столов и устройств разные номера.
   state.devices = new CompositeLightingController(
     resolveDeviceRow,
-    tuya ? tuyaFor(state.tuyaClient, resolveDeviceRow) : null
+    tuya ? tuyaFor(state.tuyaClient, resolveDeviceRow) : null,
+    state.tuyaLocalOptions
   );
   state.driver = tuya ? "tuya" : "mock";
   return error ? { driver: state.driver, error } : { driver: state.driver };
@@ -495,6 +587,84 @@ export async function syncLighting(db) {
   }
   if (synced) console.info(`Свет: приведено в соответствие столов — ${synced}`);
   return { synced };
+}
+
+/**
+ * Реле Tuya сообщило о себе — если его адрес сменился (роутер выдал
+ * другой IP), запоминаем новый. Реле узнаётся по ID, а не по адресу,
+ * поэтому закреплять адрес в роутере желательно, но не обязательно.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {{id: string, ip: string}} device
+ * @returns {number} сколько привязок поправлено
+ */
+export function applyTuyaAddress(db, { id, ip } = {}) {
+  if (!id || !ip) return 0;
+  let changed = 0;
+  for (const [table, scope] of [["tables", "Стол"], ["devices", "Устройство"]]) {
+    const rows = db
+      .prepare(
+        `SELECT id, name, light_host FROM ${table}
+         WHERE light_kind = 'tuya_local' AND tuya_device_id = ?`
+      )
+      .all(id);
+    for (const row of rows) {
+      if (row.light_host === ip) continue;
+      db.prepare(`UPDATE ${table} SET light_host = ? WHERE id = ?`).run(ip, row.id);
+      logEvent(
+        db,
+        JournalEvent.SETTINGS_UPDATED,
+        `${scope} «${row.name}»: реле сменило адрес ${row.light_host ?? "—"} → ${ip}, ` +
+          "программа нашла его сама",
+        table === "tables" ? { tableId: row.id } : {}
+      );
+      changed += 1;
+    }
+  }
+  return changed;
+}
+
+/**
+ * Следит за реле Tuya в сети клуба и сама поправляет их адреса (см.
+ * applyTuyaAddress). Только для программы на компьютере клуба: облачному
+ * серверу сеть клуба не видна. Порты заняты — молча работаем по
+ * записанным адресам, как раньше.
+ * @param {import("node:sqlite").DatabaseSync} db
+ * @param {{ports?: number[]}} [options]
+ * @returns {Promise<() => void>} остановить слежение
+ */
+export async function followTuyaAddresses(db, options = {}) {
+  try {
+    return await subscribeTuyaAnnouncements((device) => applyTuyaAddress(db, device), options);
+  } catch (error) {
+    console.warn(`Реле Tuya: адреса не отслеживаются (${error.message})`);
+    return () => {};
+  }
+}
+
+/**
+ * Клиент облака Tuya по ключам проекта из «Настроек». Нужен и тогда,
+ * когда свет управляется по локальной сети: из облака один раз берут
+ * локальные ключи реле (см. services/tuya-keys.js). Драйвер «Tuya» для
+ * этого включать не обязательно — достаточно сохранить Access ID и Secret.
+ * @param {import("node:sqlite").DatabaseSync} db
+ */
+export async function tuyaCloudClient(db) {
+  const state = stateFor(db);
+  const settings = getSettings(db);
+  if (!settings.tuya_access_id || !settings.tuya_access_secret) {
+    throw new ConflictError(
+      "Впишите Access ID и Access Secret проекта в «Облачное подключение Tuya» и нажмите " +
+        "«Сохранить подключение» (драйвер можно оставить «Выключено»)"
+    );
+  }
+  if (state.tuyaCloudFactory) return state.tuyaCloudFactory(settings);
+  if (state.tuyaClient) return state.tuyaClient;
+  const { TuyaContext } = await import("@tuya/tuya-connector-nodejs");
+  return new TuyaContext({
+    baseUrl: settings.tuya_api_host,
+    accessKey: settings.tuya_access_id,
+    secretKey: settings.tuya_access_secret,
+  });
 }
 
 /** Имя активного драйвера ("mock" | "tuya") — для вкладки «Настройки». */
