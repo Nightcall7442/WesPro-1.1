@@ -15,6 +15,7 @@ import { ConflictError, ForbiddenError } from "../services/errors.js";
 import { JournalEvent, listJournal, logEvent } from "../services/journal.js";
 import {
   getActiveDriver,
+  discoverTuyaDevices,
   syncLighting,
   getLightingController,
   initLighting,
@@ -67,6 +68,8 @@ import {
   updateDevice,
 } from "../services/devices.js";
 import { describeSchema, runReadOnlyQuery } from "../services/sql-console.js";
+import { fetchTuyaKeys, listTuyaKeys } from "../services/tuya-keys.js";
+import { buildProgramArchive } from "../services/program-archive.js";
 import { networkMode, RESTART_EXIT_CODE } from "../config.js";
 import { exeInfo } from "../services/downloads.js";
 import { clearRequests, recentRequests } from "../services/request-log.js";
@@ -1228,7 +1231,7 @@ export function createApiRouter(db) {
     const lighting = getLightingController(db);
     const relayOf = (scope, row) => {
       const kind = row.light_kind ?? "tuya";
-      const local = kind === "tasmota" || kind === "shelly";
+      const local = kind === "tasmota" || kind === "shelly" || kind === "tuya_local";
       return {
         scope,
         id: row.id,
@@ -1338,6 +1341,42 @@ export function createApiRouter(db) {
     try {
       requireDeveloper(req);
       res.json(await listCloudDevices(db));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Поиск реле Tuya/MOES в локальной сети клуба: кто отозвался — ID, IP и
+  // версия протокола. Облачному серверу сеть клуба не видна, поэтому
+  // только на своём компьютере.
+  router.get("/settings/tuya-lan", async (req, res, next) => {
+    try {
+      requireDeveloper(req);
+      requireOwnServer();
+      let found;
+      try {
+        found = await discoverTuyaDevices();
+      } catch (error) {
+        throw new ConflictError(error.message); // порты заняты — сказать как есть
+      }
+      res.json(found);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Локальные ключи реле Tuya из облака — одной кнопкой: облако по ключам
+  // проекта отдаёт ключи всех реле, они ложатся в базу и подставляются
+  // сами. Наружу — только ID и имена, ключи остаются на сервере.
+  router.get("/settings/tuya-keys", (req, res) => {
+    requireDeveloper(req);
+    res.json(listTuyaKeys(db));
+  });
+
+  router.post("/settings/tuya-keys", async (req, res, next) => {
+    try {
+      requireDeveloper(req);
+      res.json(await fetchTuyaKeys(db));
     } catch (error) {
       next(error);
     }
@@ -1640,6 +1679,18 @@ export function createApiRouter(db) {
   });
 
   // Резервная копия базы данных: выгрузка файла SQLite.
+  // Вся программа одним архивом — перенести на компьютер клуба: исходники,
+  // батники и уже установленные библиотеки (интернет для npm не нужен).
+  // Данных клуба (база, копии, журналы, .env) в архиве нет.
+  router.get("/download/wespro-club.zip", (req, res) => {
+    requirePermission(db, req, "manage_settings");
+    const archive = buildProgramArchive();
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", 'attachment; filename="wespro-club.zip"');
+    res.setHeader("Content-Length", archive.length);
+    res.end(archive);
+  });
+
   router.get("/backup", (req, res, next) => {
     try {
       requirePermission(db, req, "manage_settings");

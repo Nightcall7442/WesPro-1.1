@@ -3,35 +3,78 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 title Бильярдный клуб
 
-if not exist node_modules (
-  echo Первый запуск: установка зависимостей, подождите...
-  call npm install
+rem Один файл на всё: проверяет Node.js, ставит библиотеки, настраивает
+rem брандмауэр (Windows один раз спросит разрешение), запускает программу,
+rem открывает браузер и проверяет, отвечают ли реле над столами.
+
+rem --- Node.js -------------------------------------------------------------
+rem Нужен Node.js 22.13 или новее. Нет его - предлагаем поставить одной
+rem командой (winget есть в Windows 10 и 11), иначе открываем сайт.
+where node >nul 2>&1
+if errorlevel 1 (
+  echo Не найден Node.js - без него программа не запустится.
+  goto offer_node
+)
+node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)"
+if errorlevel 1 (
+  echo Установлен старый Node.js - нужна версия 22.13 или новее.
+  goto offer_node
+)
+goto node_ok
+
+:offer_node
+where winget >nul 2>&1
+if errorlevel 1 (
+  echo Скачайте версию LTS с сайта nodejs.org, установите и запустите этот файл снова.
+  start "" https://nodejs.org
+  pause
+  exit /b 1
+)
+choice /c YN /m "Установить Node.js сейчас? Y - да, N - нет"
+if errorlevel 2 exit /b 1
+winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+echo.
+echo Готово. Закройте это окно и запустите start-club.bat ещё раз.
+pause
+exit /b 0
+
+:node_ok
+
+rem --- Библиотеки программы ------------------------------------------------
+rem Ставим при первом запуске и после каждого обновления программы - когда
+rem package-lock.json новее установленного. Раньше ставили только один раз,
+rem и после обновления новые библиотеки (например, для реле Tuya) не
+rem появлялись.
+node -e "const fs=require('fs');try{process.exit(fs.statSync('node_modules/.package-lock.json').mtimeMs>=fs.statSync('package-lock.json').mtimeMs?0:1)}catch{process.exit(1)}"
+if errorlevel 1 (
+  echo Установка библиотек программы, подождите...
+  call npm install --no-audit --no-fund
+  if errorlevel 1 (
+    echo [!] Не удалось установить библиотеки. Проверьте интернет и запустите файл снова.
+    pause
+    exit /b 1
+  )
 )
 
-rem --- Брандмауэр Windows -------------------------------------------------
-rem Разрешаем входящие на порт 8000 во ВСЕХ сетевых профилях (домашняя,
-rem рабочая, общественная). Раньше правило добавлялось молча: без прав
-rem администратора оно не создавалось совсем, из-за этого клуб открывался
-rem с одного устройства и не открывался с другого.
-
+rem --- Брандмауэр Windows --------------------------------------------------
+rem Два правила во всех сетевых профилях: TCP 8000 - вход с телефонов,
+rem планшетов и ноутбуков; UDP 6666, 6667, 7000 - реле Tuya/MOES сообщают о
+rem себе (поиск реле и слежение за их адресом). Заводит их firewall-setup.bat:
+rem уже есть права администратора - сразу, нет - Windows один раз спросит
+rem разрешение, дальше правила уже на месте и вопроса не будет.
 net session >nul 2>&1
-if errorlevel 1 (set IS_ADMIN=0) else (set IS_ADMIN=1)
+if not errorlevel 1 (
+  call "%~dp0firewall-setup.bat"
+  goto firewall_check
+)
+call :firewall_rules_present
+if "%FW_OK%"=="1" goto firewall_check
+echo Настройка брандмауэра: Windows спросит разрешение - нажмите "Да".
+powershell -NoProfile -Command "try { Start-Process -FilePath '%~dp0firewall-setup.bat' -Verb RunAs -Wait } catch { exit 1 }" >nul 2>&1
 
-netsh advfirewall firewall show rule name="Billiards Club 8000" >nul 2>&1
-if errorlevel 1 (goto add_rule) else (goto widen_rule)
-
-:add_rule
-if "%IS_ADMIN%"=="0" (set NEED_ADMIN=1& goto firewall_done)
-netsh advfirewall firewall add rule name="Billiards Club 8000" dir=in action=allow protocol=TCP localport=8000 profile=any >nul
-if errorlevel 1 (echo [!] Не удалось добавить правило брандмауэра.) else (echo [+] Брандмауэр: порт 8000 разрешен для всех сетей.)
-goto firewall_done
-
-:widen_rule
-rem Правило есть, но могло быть создано только для домашней сети -
-rem расширяем на все профили, чтобы работало и в "общественной".
-if "%IS_ADMIN%"=="1" netsh advfirewall firewall set rule name="Billiards Club 8000" new profile=any enable=yes >nul 2>&1
-
-:firewall_done
+:firewall_check
+call :firewall_rules_present
+if "%FW_OK%"=="1" (echo [+] Брандмауэр настроен.) else (set NEED_ADMIN=1)
 
 rem --- Сервер -------------------------------------------------------------
 powershell -NoProfile -Command "try { (New-Object Net.Sockets.TcpClient('127.0.0.1',8000)).Close(); exit 0 } catch { exit 1 }" >nul 2>&1
@@ -60,15 +103,26 @@ echo Подходит адрес, у которого первые три числа совпадают с адресом
 echo устройства (на телефоне: Wi-Fi - сведения о сети - IP-адрес).
 echo Все адреса всегда видны в программе: Настройки - Доступ с телефона.
 echo.
+echo Реле над столами:
+node src/check-relays.js
+echo.
 
 if defined NEED_ADMIN (
   echo ==========================================================
-  echo   ВНИМАНИЕ: правило брандмауэра не добавлено - нет прав.
-  echo   Если с телефона или ноутбука не открывается: закройте окно
-  echo   и запустите start-club.bat ПРАВОЙ кнопкой мыши, выбрав
-  echo   "Запуск от имени администратора". Это нужно один раз.
+  echo   ВНИМАНИЕ: правила брандмауэра не добавлены - разрешение
+  echo   не дали. С телефона программа может не открываться, а
+  echo   поиск реле Tuya в сети не будет работать. Запустите этот
+  echo   файл ещё раз и нажмите "Да" в окне Windows.
   echo ==========================================================
   echo.
 )
 
 pause
+exit /b 0
+
+rem Есть ли оба правила брандмауэра: FW_OK=1 - да.
+:firewall_rules_present
+set FW_OK=1
+netsh advfirewall firewall show rule name="Billiards Club 8000" >nul 2>&1 || set FW_OK=0
+netsh advfirewall firewall show rule name="Billiards Club Tuya" >nul 2>&1 || set FW_OK=0
+exit /b 0

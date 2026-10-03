@@ -12,7 +12,7 @@ import { startAutoBackup } from "./services/auto-backup.js";
 import { startDeviceCycles } from "./services/devices.js";
 import { startSync } from "./services/sync.js";
 import { startBookingReminders } from "./services/telegram.js";
-import { initLighting, syncLighting } from "./services/lighting.js";
+import { followTuyaAddresses, initLighting, syncLighting } from "./services/lighting.js";
 import { lanAddresses } from "./services/network.js";
 import { createTenants } from "./tenants.js";
 
@@ -50,6 +50,9 @@ if (networkMode()) {
   startBookingReminders(db);
   // Кондиционер, вытяжка, приток — по циклу «работает/стоит».
   startDeviceCycles(db);
+  // Реле Tuya по локальной сети: роутер мог выдать реле другой адрес —
+  // программа узнаёт его по ID и поправляет сама.
+  followTuyaAddresses(db);
   // Связь с сетью WesPro: подписка, новшества, снимок базы — когда есть
   // интернет; без него программа работает как ни в чём не бывало.
   startSync(db);

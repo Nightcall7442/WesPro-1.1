@@ -243,7 +243,7 @@ test("привязка объясняет, чего не хватает", async 
     .put(`/api/tables/${table.id}/device`)
     .send({ kind: "zigbee-magic" });
   assert.equal(badKind.status, 409);
-  assert.match(badKind.body.detail, /tuya, tasmota, shelly или url/);
+  assert.match(badKind.body.detail, /tuya, tuya_local, tasmota, shelly или url/);
 
   const badChannel = await dev
     .put(`/api/tables/${table.id}/device`)

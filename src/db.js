@@ -219,6 +219,16 @@ CREATE TABLE IF NOT EXISTS table_tariffs (
   PRIMARY KEY (table_id, tariff_id)
 );
 
+-- Локальные ключи реле Tuya, полученные из облака кнопкой «Взять ключи
+-- из облака Tuya». По ним ключ подставляется сам, когда реле привязывают
+-- к столу. Наружу (в API) ключи не отдаются никогда — как пароли.
+CREATE TABLE IF NOT EXISTS tuya_keys (
+  device_id  TEXT PRIMARY KEY,
+  local_key  TEXT NOT NULL,
+  name       TEXT,
+  fetched_at TEXT NOT NULL
+);
+
 -- Устройства зала, не связанные со столами: кондиционер, вытяжка, приток.
 -- Сеансов и тарифов у них нет — только реле и цикл «поработало
 -- work_minutes — постояло rest_minutes». Фаза считается арифметикой от
@@ -331,7 +341,7 @@ function migratePlanElementTypes(db) {
  * Держится в самой базе (settings.schema_version) и показывается в
  * «Диагностике».
  */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /** Что появилось в каждой версии — для отчёта и для разбора жалоб. */
 export const SCHEMA_HISTORY = [
@@ -348,6 +358,7 @@ export const SCHEMA_HISTORY = [
   [11, "устройства зала по циклу: кондиционер, вытяжка, приток"],
   [12, "решётки каналов с положениями, устройства на плане зала"],
   [13, "IP и MAC реле: сами узнаются при опросе, правятся руками"],
+  [14, "реле Tuya/MOES по локальной сети, без облака; их ключи из облака"],
 ];
 
 /** Записывает версию схемы в саму базу — после того как схема доросла. */
@@ -502,6 +513,14 @@ export function createDatabase(filePath = DATABASE_PATH) {
   ensureColumn(db, "tables", "net_mac", "net_mac TEXT");
   ensureColumn(db, "devices", "net_ip", "net_ip TEXT");
   ensureColumn(db, "devices", "net_mac", "net_mac TEXT");
+  // Реле Tuya/MOES по локальной сети, без облака: локальный ключ
+  // устройства (им шифруются команды) и версия протокола (пусто —
+  // программа подберёт сама). ID устройства — в tuya_device_id, IP — в
+  // light_host, канал — в tuya_switch_code, как у остальных реле.
+  for (const table of ["tables", "devices"]) {
+    ensureColumn(db, table, "tuya_local_key", "tuya_local_key TEXT");
+    ensureColumn(db, table, "tuya_version", "tuya_version TEXT");
+  }
   // Когда сессия последний раз что-то запрашивала: по ней видно, что
   // разработчик поддержки сейчас в программе.
   ensureColumn(db, "auth_sessions", "last_seen_at", "last_seen_at TEXT");
